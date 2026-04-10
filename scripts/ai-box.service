@@ -1,0 +1,18 @@
+[Unit]
+Description=AI Edge Camera Box Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ai-box
+Environment="AI_BOX_CONFIG=/etc/ai-box/settings.yaml"
+ExecStart=/usr/bin/python3 /opt/ai-box/src/main.py
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
