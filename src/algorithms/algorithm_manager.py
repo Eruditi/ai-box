@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-算法管理器 - 统一管理所有50种算法
+算法管理器 - 统一管理所有69种算法
+支持第三方AI API集成，优先使用真实AI服务
 """
 
 import time
@@ -19,8 +20,34 @@ class AlgorithmManager:
         self.config = config or {}
         self.algorithms: Dict[int, AlgorithmBase] = {}
         self.algorithm_configs: Dict[int, Dict[str, Any]] = {}
+        self.initialized_algorithms: set = set()
+        
+        self.ai_provider_manager = None
+        self._init_ai_provider()
+        
         self._load_algorithm_configs()
         self._register_all_algorithms()
+    
+    def _init_ai_provider(self):
+        """初始化第三方AI服务提供商"""
+        try:
+            import sys
+            import os
+            src_path = os.path.dirname(os.path.dirname(__file__))
+            if src_path not in sys.path:
+                sys.path.insert(0, src_path)
+            
+            from ai_provider import get_ai_provider_manager
+            self.ai_provider_manager = get_ai_provider_manager(self.config)
+            
+            available = self.ai_provider_manager.get_available_providers()
+            if available:
+                logging.info(f"[算法管理器] 已连接第三方AI服务: {available}")
+            else:
+                logging.info("[算法管理器] 未配置第三方AI服务，使用本地算法")
+        except Exception as e:
+            logging.warning(f"[算法管理器] 第三方AI服务初始化失败: {e}")
+            self.ai_provider_manager = None
 
     def _load_algorithm_configs(self):
         """加载算法配置"""
@@ -226,11 +253,24 @@ class AlgorithmManager:
                     logging.error(f"Failed to register algorithm {algo_id}: {e}")
 
     def initialize_all(self) -> bool:
-        """初始化所有算法"""
+        """初始化配置中指定的算法（不初始化所有算法）"""
+        enabled_algos = self.config.get('ai.enabled_algorithms', [])
+        if not enabled_algos:
+            return True
+        return self.initialize_algorithms(enabled_algos)
+    
+    def initialize_algorithms(self, algo_ids: List[int]) -> bool:
+        """初始化指定的算法"""
         success = True
-        for algo_id, algorithm in self.algorithms.items():
+        for algo_id in algo_ids:
+            if algo_id in self.initialized_algorithms:
+                continue
+            if algo_id not in self.algorithms:
+                continue
             try:
+                algorithm = self.algorithms[algo_id]
                 if algorithm.initialize():
+                    self.initialized_algorithms.add(algo_id)
                     logging.info(f"Initialized algorithm: {algo_id} - {algorithm.ALGORITHM_NAME}")
                 else:
                     logging.warning(f"Failed to initialize algorithm: {algo_id}")
@@ -239,23 +279,92 @@ class AlgorithmManager:
                 logging.error(f"Error initializing algorithm {algo_id}: {e}")
                 success = False
         return success
+    
+    def initialize_algorithm(self, algo_id: int) -> bool:
+        """初始化单个算法"""
+        if algo_id in self.initialized_algorithms:
+            return True
+        if algo_id not in self.algorithms:
+            return False
+        try:
+            algorithm = self.algorithms[algo_id]
+            if algorithm.initialize():
+                self.initialized_algorithms.add(algo_id)
+                logging.info(f"Initialized algorithm: {algo_id} - {algorithm.ALGORITHM_NAME}")
+                return True
+        except Exception as e:
+            logging.error(f"Error initializing algorithm {algo_id}: {e}")
+        return False
 
+    ALGORITHM_TO_AI_API = {
+        1: 'helmet',
+        2: 'face',
+        6: 'fire',
+        7: 'smoke',
+        16: 'person',
+        17: 'person',
+        25: 'face',
+        26: 'person',
+        27: 'vehicle',
+        28: 'vehicle',
+    }
+    
     def process_frame(self, frame: np.ndarray, enabled_algorithms: List[int] = None, 
                      context: Dict[str, Any] = None) -> List[AlgorithmResult]:
-        """处理帧并返回所有启用算法的结果"""
+        """处理帧并返回所有启用算法的结果
+        优先使用第三方AI API，如果不可用则使用本地算法
+        """
         results = []
         context = context or {}
         
-        algorithms_to_process = enabled_algorithms or self.algorithms.keys()
+        algorithms_to_process = enabled_algorithms or list(self.algorithms.keys())
+        
+        if self.ai_provider_manager and self.ai_provider_manager.is_any_available():
+            ai_api_algorithms = []
+            local_algorithms = []
+            
+            for algo_id in algorithms_to_process:
+                if algo_id in self.ALGORITHM_TO_AI_API:
+                    ai_api_algorithms.append(algo_id)
+                else:
+                    local_algorithms.append(algo_id)
+            
+            if ai_api_algorithms:
+                try:
+                    _, img_encoded = cv2.imencode('.jpg', frame)
+                    image_data = img_encoded.tobytes()
+                    
+                    api_algo_names = list(set(
+                        self.ALGORITHM_TO_AI_API[aid] 
+                        for aid in ai_api_algorithms 
+                        if aid in self.ALGORITHM_TO_AI_API
+                    ))
+                    
+                    detections = self.ai_provider_manager.detect(image_data, api_algo_names)
+                    
+                    for det in detections:
+                        result = self._convert_detection_to_result(det, frame.shape)
+                        if result:
+                            results.append(result)
+                    
+                    logging.debug(f"[AI API] 检测完成: {len(detections)} 个结果")
+                except Exception as e:
+                    logging.error(f"[AI API] 检测失败: {e}")
+                    local_algorithms.extend(ai_api_algorithms)
+            
+            algorithms_to_process = local_algorithms
         
         for algo_id in algorithms_to_process:
             if algo_id not in self.algorithms:
                 continue
-                
+            
             algorithm = self.algorithms[algo_id]
             if not algorithm.enabled:
                 continue
-                
+            
+            if algo_id not in self.initialized_algorithms:
+                self.initialize_algorithm(algo_id)
+            
             try:
                 result = algorithm.process(frame, context)
                 result.timestamp = time.time()
@@ -264,6 +373,45 @@ class AlgorithmManager:
                 logging.error(f"Error processing algorithm {algo_id}: {e}")
         
         return results
+    
+    def _convert_detection_to_result(self, detection, frame_shape) -> Optional[AlgorithmResult]:
+        """将AI API检测结果转换为AlgorithmResult"""
+        from .algorithm_base import AlgorithmResult, AlgorithmCategory
+        
+        algo_id_map = {
+            'helmet': 1,
+            'no_helmet': 1,
+            'face': 25,
+            'fire': 6,
+            'smoke': 7,
+            'person': 26,
+            'vehicle': 27,
+        }
+        
+        label = detection.label
+        algo_id = algo_id_map.get(label)
+        if not algo_id:
+            for key in algo_id_map:
+                if key in label:
+                    algo_id = algo_id_map[key]
+                    break
+        
+        if not algo_id:
+            return None
+        
+        config = self.algorithm_configs.get(algo_id, {})
+        
+        return AlgorithmResult(
+            algorithm_id=algo_id,
+            algorithm_name=config.get('name', label),
+            detected=True,
+            confidence=detection.confidence,
+            bbox=detection.bbox,
+            category=config.get('category', AlgorithmCategory.STRUCTURED_ANALYSIS),
+            message=f"检测到: {label}",
+            timestamp=time.time(),
+            extra_data=detection.extra
+        )
 
     def visualize_results(self, frame: np.ndarray, results: List[AlgorithmResult]) -> np.ndarray:
         """可视化所有算法结果"""
@@ -283,6 +431,21 @@ class AlgorithmManager:
         if algo_id in self.algorithms:
             self.algorithms[algo_id].enabled = enabled
 
+    def _get_department(self, algo_id: int) -> str:
+        """根据算法ID找到部门"""
+        dept_map = {
+            '户部': list(range(25, 32)) + [46, 51],
+            '吏部': [1, 2, 3, 4, 5, 37, 41],
+            '礼部': list(range(51, 65)),
+            '兵部': list(range(10, 16)) + list(range(32, 40)) + [43, 56, 66, 67],
+            '工部': [6, 7, 8, 9, 47, 48, 49, 55, 57, 61, 68, 69],
+            '刑部': list(range(16, 25)) + [44, 45, 50, 52, 53, 54, 58, 59, 60, 62],
+        }
+        for dept, ids in dept_map.items():
+            if algo_id in ids:
+                return dept
+        return '其他'
+
     def get_all_algorithm_info(self) -> List[Dict[str, Any]]:
         """获取所有算法信息"""
         info_list = []
@@ -292,6 +455,7 @@ class AlgorithmManager:
                 'id': algo_id,
                 'name': config['name'],
                 'category': config['category'].name,
+                'department': self._get_department(algo_id),
                 'enabled': algorithm.enabled if algorithm else False
             })
         return info_list

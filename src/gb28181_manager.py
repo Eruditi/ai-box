@@ -364,6 +364,235 @@ class GB28181Manager:
                 'active_calls': len(self.call_sessions),
                 'cascade_servers': len(self.cascade_servers)
             }
+    
+    def query_device_catalog(self, device_id: str) -> bool:
+        """查询设备目录"""
+        try:
+            device = self.get_device(device_id)
+            if not device or device.status != DeviceStatus.ONLINE:
+                logging.warning(f"Device {device_id} not available")
+                return False
+            
+            message = self._generate_sip_message(
+                method=SipMethod.MESSAGE,
+                from_uri=self.config.device_id,
+                to_uri=device_id,
+                body=self._generate_catalog_query(device_id)
+            )
+            
+            if self.server_socket:
+                self.server_socket.sendto(
+                    message.encode('utf-8'),
+                    (device.ip, device.port)
+                )
+                logging.info(f"Sent catalog query to {device_id}")
+                return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"Failed to query device catalog: {e}")
+            return False
+    
+    def _generate_catalog_query(self, device_id: str) -> str:
+        """生成目录查询消息体"""
+        return (
+            '<?xml version="1.0" encoding="GB2312"?>\r\n'
+            '<Query>\r\n'
+            '  <CmdType>Catalog</CmdType>\r\n'
+            f'  <SN>{int(time.time())}</SN>\r\n'
+            f'  <DeviceID>{device_id}</DeviceID>\r\n'
+            '</Query>\r\n'
+        )
+    
+    def invite_stream(self, device_id: str, channel_id: str, ssrc: str = None) -> bool:
+        """请求实时视频流"""
+        try:
+            device = self.get_device(device_id)
+            if not device or device.status != DeviceStatus.ONLINE:
+                logging.warning(f"Device {device_id} not available")
+                return False
+            
+            if not ssrc:
+                ssrc = f"{random.randint(0, 0xFFFFFFFF):010d}"
+            
+            sdp_body = self._generate_sdp_invite(device_id, channel_id, ssrc)
+            
+            message = self._generate_sip_message(
+                method=SipMethod.INVITE,
+                from_uri=self.config.device_id,
+                to_uri=f"{device_id}_{channel_id}",
+                body=sdp_body
+            )
+            
+            if self.server_socket:
+                self.server_socket.sendto(
+                    message.encode('utf-8'),
+                    (device.ip, device.port)
+                )
+                logging.info(f"Sent INVITE to {device_id} channel {channel_id}")
+                return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"Failed to invite stream: {e}")
+            return False
+    
+    def _generate_sdp_invite(self, device_id: str, channel_id: str, ssrc: str) -> str:
+        """生成INVITE的SDP消息体"""
+        return (
+            'v=0\r\n'
+            f'o=- 0 0 IN IP4 {self.config.local_ip}\r\n'
+            's=Play\r\n'
+            f'c=IN IP4 {self.config.local_ip}\r\n'
+            't=0 0\r\n'
+            'm=video 0 RTP/AVP 96\r\n'
+            'a=rtpmap:96 PS/90000\r\n'
+            f'a=recvonly\r\n'
+            f'y={ssrc}\r\n'
+            f'f=\r\n'
+        )
+    
+    def playback_stream(self, device_id: str, channel_id: str, 
+                       start_time: str, end_time: str, ssrc: str = None) -> bool:
+        """请求历史回放流"""
+        try:
+            device = self.get_device(device_id)
+            if not device or device.status != DeviceStatus.ONLINE:
+                logging.warning(f"Device {device_id} not available")
+                return False
+            
+            if not ssrc:
+                ssrc = f"{random.randint(0, 0xFFFFFFFF):010d}"
+            
+            sdp_body = self._generate_sdp_playback(device_id, channel_id, start_time, end_time, ssrc)
+            
+            message = self._generate_sip_message(
+                method=SipMethod.INVITE,
+                from_uri=self.config.device_id,
+                to_uri=f"{device_id}_{channel_id}",
+                body=sdp_body
+            )
+            
+            if self.server_socket:
+                self.server_socket.sendto(
+                    message.encode('utf-8'),
+                    (device.ip, device.port)
+                )
+                logging.info(f"Sent playback INVITE to {device_id} channel {channel_id}")
+                return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"Failed to playback stream: {e}")
+            return False
+    
+    def _generate_sdp_playback(self, device_id: str, channel_id: str,
+                               start_time: str, end_time: str, ssrc: str) -> str:
+        """生成回放的SDP消息体"""
+        return (
+            'v=0\r\n'
+            f'o=- 0 0 IN IP4 {self.config.local_ip}\r\n'
+            's=Playback\r\n'
+            f'c=IN IP4 {self.config.local_ip}\r\n'
+            f't={start_time} {end_time}\r\n'
+            'm=video 0 RTP/AVP 96\r\n'
+            'a=rtpmap:96 PS/90000\r\n'
+            f'a=recvonly\r\n'
+            f'y={ssrc}\r\n'
+            f'f=\r\n'
+        )
+    
+    def ptz_control(self, device_id: str, channel_id: str, 
+                   action: str, params: Dict[str, Any]) -> bool:
+        """云台控制"""
+        try:
+            device = self.get_device(device_id)
+            if not device or device.status != DeviceStatus.ONLINE:
+                logging.warning(f"Device {device_id} not available")
+                return False
+            
+            ptz_body = self._generate_ptz_control(channel_id, action, params)
+            
+            message = self._generate_sip_message(
+                method=SipMethod.MESSAGE,
+                from_uri=self.config.device_id,
+                to_uri=device_id,
+                body=ptz_body
+            )
+            
+            if self.server_socket:
+                self.server_socket.sendto(
+                    message.encode('utf-8'),
+                    (device.ip, device.port)
+                )
+                logging.info(f"Sent PTZ control to {device_id}: {action}")
+                return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"Failed to PTZ control: {e}")
+            return False
+    
+    def _generate_ptz_control(self, channel_id: str, action: str, params: Dict[str, Any]) -> str:
+        """生成云台控制消息体"""
+        action_map = {
+            'stop': 'stop',
+            'left': 'left',
+            'right': 'right',
+            'up': 'up',
+            'down': 'down',
+            'zoom_in': 'zoom_in',
+            'zoom_out': 'zoom_out',
+            'focus_near': 'focus_near',
+            'focus_far': 'focus_far',
+            'iris_small': 'iris_small',
+            'iris_large': 'iris_large'
+        }
+        
+        cmd_type = action_map.get(action, 'stop')
+        
+        return (
+            '<?xml version="1.0" encoding="GB2312"?>\r\n'
+            '<Control>\r\n'
+            '  <CmdType>DeviceControl</CmdType>\r\n'
+            f'  <SN>{int(time.time())}</SN>\r\n'
+            f'  <DeviceID>{channel_id}</DeviceID>\r\n'
+            '  <PTZCmd>\r\n'
+            f'    <Action>{cmd_type}</Action>\r\n'
+            f'    <HorSpeed>{params.get("hor_speed", 0)}</HorSpeed>\r\n'
+            f'    <VerSpeed>{params.get("ver_speed", 0)}</VerSpeed>\r\n'
+            f'    <ZoomSpeed>{params.get("zoom_speed", 0)}</ZoomSpeed>\r\n'
+            '  </PTZCmd>\r\n'
+            '</Control>\r\n'
+        )
+    
+    def bye_stream(self, device_id: str, channel_id: str, call_id: str) -> bool:
+        """停止视频流"""
+        try:
+            device = self.get_device(device_id)
+            if not device:
+                logging.warning(f"Device {device_id} not found")
+                return False
+            
+            message = self._generate_sip_message(
+                method=SipMethod.BYE,
+                from_uri=self.config.device_id,
+                to_uri=f"{device_id}_{channel_id}",
+                call_id=call_id
+            )
+            
+            if self.server_socket:
+                self.server_socket.sendto(
+                    message.encode('utf-8'),
+                    (device.ip, device.port)
+                )
+                logging.info(f"Sent BYE to {device_id} channel {channel_id}")
+                return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"Failed to bye stream: {e}")
+            return False
 
 
 def create_gb28181_manager_from_config(config) -> GB28181Manager:

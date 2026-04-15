@@ -91,8 +91,8 @@ class StudentAttentionAlgorithm(AlgorithmBase):
             focused_count = 0
             total_count = len(faces)
 
-            for (x, y, w, h) in faces:
-                eye_region = frame[y + h//4:y + h//2, x:x + w]
+            for (fx, fy, fw, fh) in faces:
+                eye_region = frame[fy + fh//4:fy + fh//2, fx:fx + fw]
                 if eye_region.size > 0:
                     eye_gray = cv2.cvtColor(eye_region, cv2.COLOR_BGR2GRAY)
                     eye_brightness = np.mean(eye_gray)
@@ -151,6 +151,10 @@ class ClassroomDisciplineAlgorithm(AlgorithmBase):
             self.previous_frame = gray
             return result
 
+        if self.previous_frame.shape != gray.shape:
+            self.previous_frame = gray
+            return result
+
         frame_delta = cv2.absdiff(self.previous_frame, gray)
         thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
         thresh = cv2.dilate(thresh, None, iterations=2)
@@ -205,6 +209,9 @@ class TeacherActivityAlgorithm(AlgorithmBase):
         if self.hog is None:
             return result
 
+        if not self._is_safe_for_hog(frame):
+            return result
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         boxes, weights = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
 
@@ -249,9 +256,11 @@ class EquipmentUsageAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
+        if not self._is_valid_frame(frame):
+            return result
+
         h, w = frame.shape[:2]
         
-        # 检测屏幕/投影区域
         screen_region = frame[h//3:h*2//3, w//4:w*3//4]
         if screen_region.size > 0:
             screen_brightness = np.mean(screen_region)
@@ -298,6 +307,9 @@ class StudentAbsenceAlgorithm(AlgorithmBase):
         if self.face_cascade is None:
             return result
 
+        if not self._is_valid_frame(frame):
+            return result
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
 
@@ -333,16 +345,16 @@ class ClassroomEnvironmentAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
+        if not self._is_valid_frame(frame):
+            return result
+
         h, w = frame.shape[:2]
         
-        # 分析亮度
         brightness = np.mean(frame)
         
-        # 分析色彩
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         saturation = np.mean(hsv[:, :, 1])
         
-        # 分析清晰度
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         laplacian = cv2.Laplacian(gray, cv2.CV_64F)
         clarity = np.var(laplacian)
@@ -464,6 +476,9 @@ class ClassroomParticipationAlgorithm(AlgorithmBase):
         if self.face_cascade is None or self.hog is None:
             return result
 
+        if not self._is_safe_for_hog(frame):
+            return result
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
         boxes, _ = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
@@ -518,6 +533,9 @@ class TeacherTeachingStyleAlgorithm(AlgorithmBase):
         )
 
         if self.hog is None:
+            return result
+
+        if not self._is_safe_for_hog(frame):
             return result
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -595,6 +613,10 @@ class ClassroomAtmosphereAlgorithm(AlgorithmBase):
             self.previous_frame = gray
             return result
 
+        if self.previous_frame.shape != gray.shape:
+            self.previous_frame = gray
+            return result
+
         frame_delta = cv2.absdiff(self.previous_frame, gray)
         thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
         thresh = cv2.dilate(thresh, None, iterations=2)
@@ -663,15 +685,13 @@ class StudentEmotionAlgorithm(AlgorithmBase):
             positive_emotions = 0
             total_faces = len(faces)
             
-            for (x, y, w, h) in faces:
-                # 简单的情绪分析：基于面部亮度和对比度
-                face_roi = frame[y:y+h, x:x+w]
+            for (fx, fy, fw, fh) in faces:
+                face_roi = frame[fy:fy+fh, fx:fx+fw]
                 if face_roi.size > 0:
                     brightness = np.mean(face_roi)
                     gray_roi = cv2.cvtColor(face_roi, cv2.COLOR_BGR2GRAY)
                     contrast = np.std(gray_roi)
                     
-                    # 基于亮度和对比度判断积极情绪
                     if 100 < brightness < 180 and 30 < contrast < 80:
                         positive_emotions += 1
             
@@ -722,11 +742,13 @@ class ClassroomRhythmAlgorithm(AlgorithmBase):
         if self.face_cascade is None or self.hog is None:
             return result
 
+        if not self._is_safe_for_hog(frame):
+            return result
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
         boxes, _ = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
 
-        # 计算当前活动水平
         current_activity = len(faces) * 0.5 + len(boxes) * 0.5
         self.activity_levels.append(current_activity)
         if len(self.activity_levels) > 20:
@@ -789,19 +811,19 @@ class TeachingEffectivenessAlgorithm(AlgorithmBase):
         if self.face_cascade is None or self.hog is None:
             return result
 
+        if not self._is_safe_for_hog(frame):
+            return result
+
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
         boxes, _ = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
 
         if len(faces) > 0:
-            # 综合评估教学效果
             effectiveness_score = 0
             
-            # 1. 学生专注度（基于人脸朝向）
             focused_students = len(faces)
             effectiveness_score += focused_students / len(faces) * 0.3 if len(faces) > 0 else 0
             
-            # 2. 教师活动水平
             teacher_count = len(boxes)
             if teacher_count > 0:
                 effectiveness_score += 0.3

@@ -46,11 +46,11 @@ class DroneFireDetectionAlgorithm(AlgorithmBase):
             if fire_confidence > smoke_confidence:
                 result.confidence = fire_confidence
                 result.bounding_box = fire_box
-                result.extra = {"type": "fire"}
+                result.extra_data = {"type": "fire"}
             else:
                 result.confidence = smoke_confidence
                 result.bounding_box = smoke_box
-                result.extra = {"type": "smoke"}
+                result.extra_data = {"type": "smoke"}
         
         return result
     
@@ -186,6 +186,6 @@ class DroneFireSmokeAnalyzer(AlgorithmBase):
             result.detected = True
             result.confidence = current_result.confidence
             result.bounding_box = current_result.bounding_box
-            result.extra = current_result.extra
+            result.extra_data = current_result.extra_data
         
         return result

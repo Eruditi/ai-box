@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 禁牧识别算法
+使用 YOLO 检测牲畜（牛、羊、马等）
 """
 
 import cv2
@@ -8,6 +9,9 @@ import numpy as np
 from typing import Dict, Any, List
 
 from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory
+from .yolo_engine import YOLOEngine
+
+LIVESTOCK_CLASSES = [17, 18, 19]
 
 
 class LivestockDetectionAlgorithm(AlgorithmBase):
@@ -18,13 +22,12 @@ class LivestockDetectionAlgorithm(AlgorithmBase):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
-        self.hog = None
+        self.yolo = None
 
     def initialize(self) -> bool:
         try:
-            self.hog = cv2.HOGDescriptor()
-            self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-            return True
+            self.yolo = YOLOEngine()
+            return self.yolo.is_available()
         except Exception:
             return False
 
@@ -35,26 +38,31 @@ class LivestockDetectionAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        if self.hog is None:
+        if self.yolo is None or not self.yolo.is_available():
             return result
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        boxes, weights = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
+        if not self._is_valid_frame(frame):
+            return result
 
-        # 过滤掉可能是人的检测结果，保留可能是牲畜的结果
+        detections = self.yolo.detect(frame, classes=LIVESTOCK_CLASSES, conf=0.3)
+
         livestock_boxes = []
-        for (x, y, w, h) in boxes:
-            # 牲畜通常比人更宽或更矮
-            aspect_ratio = w / h
-            if 0.8 < aspect_ratio < 1.5:
-                livestock_boxes.append((x, y, w, h))
+        for det in detections:
+            bbox = det['bbox']
+            x, y, x2, y2 = bbox
+            w, h = x2 - x, y2 - y
+            livestock_boxes.append({
+                'x': x, 'y': y, 'w': w, 'h': h,
+                'type': det['class_name'],
+                'confidence': det['confidence']
+            })
 
         if len(livestock_boxes) > 0:
             result.detected = True
-            result.confidence = 0.8
+            result.confidence = max(b['confidence'] for b in livestock_boxes)
             result.extra_data = {
                 'livestock_count': len(livestock_boxes),
-                'livestock_boxes': [{'x': x, 'y': y, 'w': w, 'h': h} for (x, y, w, h) in livestock_boxes]
+                'livestock_boxes': livestock_boxes
             }
 
         return result
@@ -68,14 +76,13 @@ class GrazingProhibitionAlgorithm(AlgorithmBase):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
-        self.hog = None
+        self.yolo = None
         self.prohibited_areas = config.get('prohibited_areas', [])
 
     def initialize(self) -> bool:
         try:
-            self.hog = cv2.HOGDescriptor()
-            self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-            return True
+            self.yolo = YOLOEngine()
+            return self.yolo.is_available()
         except Exception:
             return False
 
@@ -86,31 +93,37 @@ class GrazingProhibitionAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        if self.hog is None:
+        if self.yolo is None or not self.yolo.is_available():
             return result
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        boxes, weights = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
+        if not self._is_valid_frame(frame):
+            return result
 
-        # 检测禁牧区域内的牲畜
+        detections = self.yolo.detect(frame, classes=LIVESTOCK_CLASSES, conf=0.3)
+
         livestock_in_prohibited = []
-        for (x, y, w, h) in boxes:
-            # 过滤可能的牲畜
-            aspect_ratio = w / h
-            if 0.8 < aspect_ratio < 1.5:
-                # 检查是否在禁牧区域内
-                for area in self.prohibited_areas:
-                    if isinstance(area, dict) and 'x' in area and 'y' in area and 'w' in area and 'h' in area:
-                        ax, ay, aw, ah = area['x'], area['y'], area['w'], area['h']
-                        if ax < x < ax + aw and ay < y < ay + ah:
-                            livestock_in_prohibited.append((x, y, w, h))
+        for det in detections:
+            bbox = det['bbox']
+            x, y, x2, y2 = bbox
+            cx, cy = (x + x2) // 2, (y + y2) // 2
+
+            for area in self.prohibited_areas:
+                if isinstance(area, dict) and all(k in area for k in ['x', 'y', 'w', 'h']):
+                    ax, ay, aw, ah = area['x'], area['y'], area['w'], area['h']
+                    if ax <= cx <= ax + aw and ay <= cy <= ay + ah:
+                        livestock_in_prohibited.append({
+                            'x': x, 'y': y, 'w': x2 - x, 'h': y2 - y,
+                            'type': det['class_name'],
+                            'confidence': det['confidence']
+                        })
+                        break
 
         if len(livestock_in_prohibited) > 0:
             result.detected = True
-            result.confidence = 0.9
+            result.confidence = max(b['confidence'] for b in livestock_in_prohibited)
             result.extra_data = {
                 'violation_count': len(livestock_in_prohibited),
-                'violation_boxes': [{'x': x, 'y': y, 'w': w, 'h': h} for (x, y, w, h) in livestock_in_prohibited],
+                'violation_boxes': livestock_in_prohibited,
                 'prohibited_areas': self.prohibited_areas
             }
 
@@ -125,14 +138,13 @@ class GrazingMonitoringAlgorithm(AlgorithmBase):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
-        self.hog = None
+        self.yolo = None
         self.livestock_history = []
 
     def initialize(self) -> bool:
         try:
-            self.hog = cv2.HOGDescriptor()
-            self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-            return True
+            self.yolo = YOLOEngine()
+            return self.yolo.is_available()
         except Exception:
             return False
 
@@ -143,33 +155,28 @@ class GrazingMonitoringAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        if self.hog is None:
+        if self.yolo is None or not self.yolo.is_available():
             return result
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        boxes, weights = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
+        if not self._is_valid_frame(frame):
+            return result
 
-        # 检测牲畜
-        livestock_count = 0
-        for (x, y, w, h) in boxes:
-            aspect_ratio = w / h
-            if 0.8 < aspect_ratio < 1.5:
-                livestock_count += 1
+        detections = self.yolo.detect(frame, classes=LIVESTOCK_CLASSES, conf=0.3)
+        livestock_count = len(detections)
 
         self.livestock_history.append(livestock_count)
         if len(self.livestock_history) > 10:
             self.livestock_history.pop(0)
 
-        if len(self.livestock_history) > 5:
-            # 分析放牧活动
+        if len(self.livestock_history) >= 5:
             avg_count = sum(self.livestock_history) / len(self.livestock_history)
             max_count = max(self.livestock_history)
-            
+
             result.detected = True
-            result.confidence = 0.8
+            result.confidence = min(1.0, livestock_count / 5)
             result.extra_data = {
                 'current_livestock': livestock_count,
-                'average_livestock': avg_count,
+                'average_livestock': round(avg_count, 1),
                 'max_livestock': max_count,
                 'grazing_intensity': 'high' if avg_count > 5 else 'medium' if avg_count > 2 else 'low'
             }

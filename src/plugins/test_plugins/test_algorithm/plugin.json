@@ -1,0 +1,16 @@
+{
+  "name": "test_algorithm",
+  "version": "1.0.0",
+  "description": "test_algorithm 算法插件",
+  "author": "Your Name",
+  "sdk_version": "1.0.0",
+  "algorithms": [
+    {
+      "id": 999,
+      "name": "test_algorithm检测",
+      "class": "MainAlgorithm",
+      "category": "structured_analysis",
+      "config": {}
+    }
+  ]
+}

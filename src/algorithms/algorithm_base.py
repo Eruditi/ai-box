@@ -58,6 +58,48 @@ class AlgorithmBase(ABC):
         self.enabled = self.config.get('enabled', True)
         self.confidence_threshold = self.config.get('confidence_threshold', 0.5)
 
+    def _is_valid_frame(self, frame: np.ndarray) -> bool:
+        """检查帧是否有效（非纯黑/过暗/噪声帧/过曝帧）"""
+        if frame is None or frame.size == 0:
+            return False
+        
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+        mean_val = np.mean(gray)
+        std_val = np.std(gray)
+        
+        if mean_val < 30 and std_val < 15:
+            return False
+        
+        if mean_val < 20:
+            return False
+        
+        if std_val < 5:
+            return False
+        
+        if mean_val > 245 and std_val < 20:
+            return False
+        
+        h, w = gray.shape[:2]
+        edge_map = cv2.Canny(gray, 50, 150)
+        edge_ratio = cv2.countNonZero(edge_map) / (h * w)
+        if edge_ratio < 0.001:
+            return False
+        
+        hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
+        hist_norm = hist.flatten() / (h * w)
+        max_bin_ratio = np.max(hist_norm)
+        if max_bin_ratio > 0.5:
+            return False
+        
+        return True
+    
+    def _is_safe_for_hog(self, frame: np.ndarray) -> bool:
+        """检查帧是否足够大以安全运行HOG检测"""
+        if frame is None or frame.size == 0:
+            return False
+        h, w = frame.shape[:2]
+        return h >= 128 and w >= 128
+
     @abstractmethod
     def initialize(self) -> bool:
         """初始化算法"""

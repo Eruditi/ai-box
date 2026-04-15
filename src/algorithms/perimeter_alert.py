@@ -206,6 +206,11 @@ class IntrusionAlgorithm(AlgorithmBase):
             self.frame_count += 1
             return result
 
+        if self.reference_frame.shape != gray.shape:
+            self.reference_frame = gray
+            self.frame_count += 1
+            return result
+
         self.frame_count += 1
 
         frame_delta = cv2.absdiff(self.reference_frame, gray)
@@ -588,6 +593,9 @@ class UnloadingProcedureAlgorithm(AlgorithmBase):
             algorithm_name=self.ALGORITHM_NAME,
             category=self.CATEGORY
         )
+
+        if not self._is_valid_frame(frame):
+            return result
 
         h, w = frame.shape[:2]
         

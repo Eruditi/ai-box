@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-全结构化解析算法 - ID 25-29
+结构化解析算法 - ID 25-29
+基于 YOLOv8 目标检测
 """
 
 import cv2
@@ -8,6 +9,7 @@ import numpy as np
 from typing import Dict, Any
 
 from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory
+from .yolo_engine import get_yolo_engine
 
 
 class FaceDetectionAlgorithm(AlgorithmBase):
@@ -18,16 +20,11 @@ class FaceDetectionAlgorithm(AlgorithmBase):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
-        self.face_cascade = None
+        self.yolo = None
 
     def initialize(self) -> bool:
-        try:
-            self.face_cascade = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            )
-            return True
-        except Exception:
-            return False
+        self.yolo = get_yolo_engine()
+        return True
 
     def process(self, frame: np.ndarray, context: Dict[str, Any] = None) -> AlgorithmResult:
         result = AlgorithmResult(
@@ -36,17 +33,22 @@ class FaceDetectionAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        if self.face_cascade is None:
-            return result
+        detections = self.yolo.detect(frame, classes=[0])
+        faces = []
+        for det in detections:
+            x1, y1, x2, y2 = det['bbox']
+            face_h = y2 - y1
+            face_w = x2 - x1
+            if 0.5 < face_h / face_w < 2.0 and face_h * face_w > 1000:
+                faces.append(det)
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        faces = self.face_cascade.detectMultiScale(gray, 1.1, 4)
-
-        if len(faces) > 0:
-            x, y, w, h = faces[0]
+        if faces:
+            best = max(faces, key=lambda d: d['confidence'])
+            x1, y1, x2, y2 = best['bbox']
             result.detected = True
-            result.confidence = 0.85
-            result.bounding_box = (x, y, w, h)
+            result.confidence = best['confidence']
+            result.bounding_box = (x1, y1, x2 - x1, y2 - y1)
+            result.extra_data = {'face_count': len(faces)}
 
         return result
 
@@ -59,15 +61,11 @@ class HumanShapeAlgorithm(AlgorithmBase):
 
     def __init__(self, config: Dict[str, Any] = None):
         super().__init__(config)
-        self.hog = None
+        self.yolo = None
 
     def initialize(self) -> bool:
-        try:
-            self.hog = cv2.HOGDescriptor()
-            self.hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-            return True
-        except Exception:
-            return False
+        self.yolo = get_yolo_engine()
+        return True
 
     def process(self, frame: np.ndarray, context: Dict[str, Any] = None) -> AlgorithmResult:
         result = AlgorithmResult(
@@ -76,17 +74,14 @@ class HumanShapeAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        if self.hog is None:
-            return result
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        boxes, weights = self.hog.detectMultiScale(gray, winStride=(4, 4), padding=(8, 8), scale=1.05)
-
-        if len(boxes) > 0:
-            x, y, w, h = boxes[0]
+        detections = self.yolo.detect(frame, classes=[0])
+        if detections:
+            best = max(detections, key=lambda d: d['confidence'])
+            x1, y1, x2, y2 = best['bbox']
             result.detected = True
-            result.confidence = float(weights[0]) if len(weights) > 0 else 0.7
-            result.bounding_box = (x, y, w, h)
+            result.confidence = best['confidence']
+            result.bounding_box = (x1, y1, x2 - x1, y2 - y1)
+            result.extra_data = {'person_count': len(detections)}
 
         return result
 
@@ -97,7 +92,12 @@ class MotorVehicleAlgorithm(AlgorithmBase):
     ALGORITHM_NAME = "机动车"
     CATEGORY = AlgorithmCategory.STRUCTURED_ANALYSIS
 
+    def __init__(self, config: Dict[str, Any] = None):
+        super().__init__(config)
+        self.yolo = None
+
     def initialize(self) -> bool:
+        self.yolo = get_yolo_engine()
         return True
 
     def process(self, frame: np.ndarray, context: Dict[str, Any] = None) -> AlgorithmResult:
@@ -107,22 +107,17 @@ class MotorVehicleAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        h, w = frame.shape[:2]
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if 5000 < area < 50000:
-                x, y, w_box, h_box = cv2.boundingRect(contour)
-                aspect_ratio = w_box / h_box if h_box > 0 else 0
-
-                if 1.2 < aspect_ratio < 3.0:
-                    result.detected = True
-                    result.confidence = 0.7
-                    result.bounding_box = (x, y, w_box, h_box)
-                    break
+        detections = self.yolo.detect(frame, classes=[2, 5, 7])
+        if detections:
+            best = max(detections, key=lambda d: d['confidence'])
+            x1, y1, x2, y2 = best['bbox']
+            result.detected = True
+            result.confidence = best['confidence']
+            result.bounding_box = (x1, y1, x2 - x1, y2 - y1)
+            result.extra_data = {
+                'vehicle_count': len(detections),
+                'vehicle_types': [d['class_name'] for d in detections]
+            }
 
         return result
 
@@ -133,7 +128,12 @@ class NonMotorVehicleAlgorithm(AlgorithmBase):
     ALGORITHM_NAME = "非机动车"
     CATEGORY = AlgorithmCategory.STRUCTURED_ANALYSIS
 
+    def __init__(self, config: Dict[str, Any] = None):
+        super().__init__(config)
+        self.yolo = None
+
     def initialize(self) -> bool:
+        self.yolo = get_yolo_engine()
         return True
 
     def process(self, frame: np.ndarray, context: Dict[str, Any] = None) -> AlgorithmResult:
@@ -143,22 +143,17 @@ class NonMotorVehicleAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        h, w = frame.shape[:2]
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
-        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if 1000 < area < 10000:
-                x, y, w_box, h_box = cv2.boundingRect(contour)
-                aspect_ratio = w_box / h_box if h_box > 0 else 0
-
-                if 0.8 < aspect_ratio < 2.0:
-                    result.detected = True
-                    result.confidence = 0.65
-                    result.bounding_box = (x, y, w_box, h_box)
-                    break
+        detections = self.yolo.detect(frame, classes=[1, 3])
+        if detections:
+            best = max(detections, key=lambda d: d['confidence'])
+            x1, y1, x2, y2 = best['bbox']
+            result.detected = True
+            result.confidence = best['confidence']
+            result.bounding_box = (x1, y1, x2 - x1, y2 - y1)
+            result.extra_data = {
+                'vehicle_count': len(detections),
+                'vehicle_types': [d['class_name'] for d in detections]
+            }
 
         return result
 
@@ -169,7 +164,12 @@ class LicensePlateAlgorithm(AlgorithmBase):
     ALGORITHM_NAME = "车牌"
     CATEGORY = AlgorithmCategory.STRUCTURED_ANALYSIS
 
+    def __init__(self, config: Dict[str, Any] = None):
+        super().__init__(config)
+        self.yolo = None
+
     def initialize(self) -> bool:
+        self.yolo = get_yolo_engine()
         return True
 
     def process(self, frame: np.ndarray, context: Dict[str, Any] = None) -> AlgorithmResult:
@@ -179,28 +179,28 @@ class LicensePlateAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        h, w = frame.shape[:2]
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+        vehicle_dets = self.yolo.detect(frame, classes=[2, 5, 7])
+        for vdet in vehicle_dets:
+            x1, y1, x2, y2 = vdet['bbox']
+            vh = y2 - y1
+            plate_region = frame[y2 - vh // 4:y2, x1:x2]
+            if plate_region.size == 0:
+                continue
 
-        blue_mask = cv2.inRange(hsv, np.array([100, 50, 50]), np.array([130, 255, 255]))
-        yellow_mask = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([40, 255, 255]))
-        green_mask = cv2.inRange(hsv, np.array([40, 50, 50]), np.array([80, 255, 255]))
+            hsv = cv2.cvtColor(plate_region, cv2.COLOR_BGR2HSV)
+            blue_plate = cv2.inRange(hsv, np.array([100, 50, 50]), np.array([130, 255, 255]))
+            yellow_plate = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([35, 255, 255]))
+            green_plate = cv2.inRange(hsv, np.array([35, 50, 50]), np.array([85, 255, 255]))
+            plate_mask = cv2.bitwise_or(cv2.bitwise_or(blue_plate, yellow_plate), green_plate)
 
-        plate_mask = cv2.bitwise_or(blue_mask, yellow_mask)
-        plate_mask = cv2.bitwise_or(plate_mask, green_mask)
+            plate_pixels = cv2.countNonZero(plate_mask)
+            region_area = plate_region.shape[0] * plate_region.shape[1]
 
-        contours, _ = cv2.findContours(plate_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        for contour in contours:
-            area = cv2.contourArea(contour)
-            if 500 < area < 5000:
-                x, y, w_box, h_box = cv2.boundingRect(contour)
-                aspect_ratio = w_box / h_box if h_box > 0 else 0
-
-                if 2.0 < aspect_ratio < 5.0:
-                    result.detected = True
-                    result.confidence = 0.7
-                    result.bounding_box = (x, y, w_box, h_box)
-                    break
+            if region_area > 0 and plate_pixels / region_area > 0.15:
+                result.detected = True
+                result.confidence = min(0.85, vdet['confidence'] + 0.1)
+                result.bounding_box = (x1, y2 - vh // 4, x2 - x1, vh // 4)
+                result.extra_data = {'plate_color_ratio': float(plate_pixels / region_area)}
+                break
 
         return result

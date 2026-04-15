@@ -202,6 +202,10 @@ class RunningAlgorithm(AlgorithmBase):
             self.previous_frame = gray
             return result
 
+        if self.previous_frame.shape != gray.shape:
+            self.previous_frame = gray
+            return result
+
         frame_delta = cv2.absdiff(self.previous_frame, gray)
         thresh = cv2.threshold(frame_delta, 25, 255, cv2.THRESH_BINARY)[1]
         thresh = cv2.dilate(thresh, None, iterations=2)
@@ -364,6 +368,10 @@ class FightingAlgorithm(AlgorithmBase):
         gray = cv2.GaussianBlur(gray, (21, 21), 0)
 
         if self.previous_frame is None:
+            self.previous_frame = gray
+            return result
+
+        if self.previous_frame.shape != gray.shape:
             self.previous_frame = gray
             return result
 

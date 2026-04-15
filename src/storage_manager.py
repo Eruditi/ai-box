@@ -362,10 +362,18 @@ class StorageManager:
 
 if __name__ == '__main__':
     import yaml
+    import os
     
-    config_path = '/workspace/ai-box/config/settings_high_performance.yaml'
-    with open(config_path, 'r', encoding='utf-8') as f:
-        config = yaml.safe_load(f)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(project_root, 'config', 'settings_high_performance.yaml')
+    
+    if not os.path.exists(config_path):
+        print(f"配置文件不存在: {config_path}")
+        print("使用默认配置进行测试...")
+        config = {}
+    else:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
     
     storage_manager = StorageManager(config)
     
