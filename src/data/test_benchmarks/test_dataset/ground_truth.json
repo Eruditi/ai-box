@@ -1,0 +1,19 @@
+{
+  "test_image_1": {
+    "boxes": [
+      {
+        "x": 100,
+        "y": 100,
+        "width": 50,
+        "height": 50,
+        "label": "person",
+        "confidence": 1.0
+      }
+    ],
+    "metadata": {}
+  },
+  "test_image_2": {
+    "boxes": [],
+    "metadata": {}
+  }
+}

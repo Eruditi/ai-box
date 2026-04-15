@@ -1,0 +1,50 @@
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 编译产物
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 依赖
+*.egg
+*.egg-info/
+dist/
+build/
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 日志
+logs/
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# 测试
+.pytest_cache/
+.coverage
+
+# 临时文件
+*.tmp
+*.temp
+
+# 数据
+/data/
+/models/
+
+# Docker
+Dockerfile*
+.dockerignore
+
+# 配置
+config/settings.yaml
+config/settings_high_performance.yaml

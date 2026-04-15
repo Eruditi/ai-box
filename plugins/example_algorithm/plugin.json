@@ -1,0 +1,18 @@
+{
+    "name": "example_algorithm",
+    "version": "1.0.0",
+    "description": "示例算法插件 - 演示如何开发自定义算法",
+    "author": "AI Box Team",
+    "algorithms": [
+        {
+            "id": 100,
+            "name": "亮度检测",
+            "class": "ExampleAlgorithm",
+            "category": "structured_analysis",
+            "config": {
+                "threshold": 0.5,
+                "brightness_threshold": 100
+            }
+        }
+    ]
+}

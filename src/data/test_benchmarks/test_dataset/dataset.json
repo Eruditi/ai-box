@@ -1,0 +1,12 @@
+{
+  "name": "test_dataset",
+  "description": "测试数据集",
+  "images": [
+    "test_image_1.jpg",
+    "test_image_2.jpg"
+  ],
+  "categories": [
+    "person"
+  ],
+  "created_at": "2026-04-13T22:31:51.839678"
+}

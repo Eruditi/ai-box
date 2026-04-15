@@ -1,0 +1,40 @@
+{
+  "fp_1776090683349_1": {
+    "sample_id": "fp_1776090683349_1",
+    "algorithm_id": 1,
+    "algorithm_name": "安全帽检测",
+    "camera_source": "Camera_1",
+    "timestamp": 1776090683.3499348,
+    "confidence": 0.75,
+    "bbox": [
+      100,
+      100,
+      50,
+      50
+    ],
+    "feature_hash": "",
+    "image_path": null,
+    "reason": "误报：实际是帽子不是安全帽",
+    "user_id": "test_user",
+    "verified": false
+  },
+  "fp_1776090711766_1": {
+    "sample_id": "fp_1776090711766_1",
+    "algorithm_id": 1,
+    "algorithm_name": "安全帽检测",
+    "camera_source": "Camera_1",
+    "timestamp": 1776090711.7669704,
+    "confidence": 0.75,
+    "bbox": [
+      100,
+      100,
+      50,
+      50
+    ],
+    "feature_hash": "",
+    "image_path": null,
+    "reason": "误报：实际是帽子不是安全帽",
+    "user_id": "test_user",
+    "verified": false
+  }
+}
