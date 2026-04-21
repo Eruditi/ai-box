@@ -48,10 +48,12 @@ class Camera:
                 logging.info(f"Camera connected: {self.name} ({self.source})")
                 return True
             else:
-                logging.error(f"Failed to open camera: {self.source}")
+                self.reconnect_attempts += 1
+                logging.error(f"Failed to open camera: {self.name} ({self.source}), attempts: {self.reconnect_attempts}")
                 return False
         except Exception as e:
-            logging.error(f"Error connecting to camera {self.source}: {e}")
+            self.reconnect_attempts += 1
+            logging.error(f"Error connecting to camera {self.name} ({self.source}): {e}, attempts: {self.reconnect_attempts}")
             return False
 
     def disconnect(self):

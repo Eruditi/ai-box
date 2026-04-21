@@ -282,23 +282,31 @@ class AIBox:
         logging.info("Stopping AI Box system...")
         self.running = False
         
-        if self.cloud_client and self.cloud_client.is_available():
-            self.cloud_client.report_heartbeat({'status': 'stopping'})
+        try:
+            if self.cloud_client and hasattr(self.cloud_client, 'is_available') and self.cloud_client.is_available():
+                try:
+                    self.cloud_client.report_heartbeat({'status': 'stopping'})
+                except Exception as e:
+                    logging.warning(f"[关闭] 云客户端心跳上报失败: {e}")
+        except Exception as e:
+            logging.warning(f"[关闭] 云客户端处理失败: {e}")
         
-        if self.health_monitor:
-            self.health_monitor.stop()
+        # 按照依赖关系反向关闭
+        shutdown_order = [
+            ('Web服务器', self.web_server),
+            ('AI分析器', self.ai_analyzer),
+            ('摄像头管理器', self.camera_manager),
+            ('进程管理器', self.process_manager),
+            ('健康监控', self.health_monitor),
+        ]
         
-        if self.web_server:
-            self.web_server.stop()
-        
-        if self.ai_analyzer:
-            self.ai_analyzer.stop()
-        
-        if self.camera_manager:
-            self.camera_manager.stop()
-        
-        if self.process_manager:
-            self.process_manager.stop()
+        for name, component in shutdown_order:
+            if component and hasattr(component, 'stop'):
+                try:
+                    component.stop()
+                    logging.info(f"[关闭] {name} 已停止")
+                except Exception as e:
+                    logging.error(f"[关闭] {name} 停止失败: {e}")
         
         logging.info("AI Box system stopped.")
 

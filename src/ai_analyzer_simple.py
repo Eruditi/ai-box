@@ -104,39 +104,7 @@ class SimpleAIAnalyzer:
                     continue
                 
                 for camera in cameras:
-                    if not camera.connected:
-                        continue
-                    
-                    frame = camera.get_frame()
-                    if frame is None:
-                        continue
-                    
-                    enabled_algos = self._get_camera_enabled_algorithms(camera)
-                    
-                    # 详细日志（每100帧输出一次）
-                    if self.frame_counter % 100 == 0:
-                        logging.info(f"[AI分析] 帧#{self.frame_counter} | 摄像头: {camera.name} | 启用算法: {enabled_algos}")
-                    
-                    if not enabled_algos:
-                        if self.frame_counter % 200 == 0:
-                            logging.warning(f"[AI分析] 摄像头 {camera.name} 未启用任何算法，跳过分析")
-                        continue
-                    
-                    all_results = self.algorithm_manager.process_frame(frame, enabled_algos)
-                    
-                    if all_results and self.frame_counter % 50 == 0:
-                        logging.debug(f"[AI分析] {camera.name} 检测到 {len(all_results)} 个结果")
-                    
-                    passed_alerts = self.quality_controller.process(
-                        all_results, frame, camera.source
-                    )
-                    
-                    if passed_alerts:
-                        logging.info(f"[AI分析] {camera.name} 产生 {len(passed_alerts)} 条告警")
-                        self._handle_alerts(passed_alerts, camera.source, frame)
-                    
-                    with self.results_lock:
-                        self.results[camera.source] = passed_alerts
+                    self._process_camera_frame(camera)
                 
                 self.frame_counter += 1
                 time.sleep(0.033)
@@ -144,6 +112,48 @@ class SimpleAIAnalyzer:
             except Exception as e:
                 logging.error(f"[分析循环] 异常: {e}", exc_info=True)
                 time.sleep(0.1)
+    
+    def _process_camera_frame(self, camera):
+        """处理单个摄像头的帧"""
+        if not camera.connected:
+            return
+        
+        frame = camera.get_frame()
+        if frame is None:
+            return
+        
+        enabled_algos = self._get_camera_enabled_algorithms(camera)
+        self._log_frame_info(camera, enabled_algos)
+        
+        if not enabled_algos:
+            return
+        
+        all_results = self.algorithm_manager.process_frame(frame, enabled_algos)
+        self._log_detection_results(camera, all_results)
+        
+        passed_alerts = self.quality_controller.process(
+            all_results, frame, camera.source
+        )
+        
+        if passed_alerts:
+            logging.info(f"[AI分析] {camera.name} 产生 {len(passed_alerts)} 条告警")
+            self._handle_alerts(passed_alerts, camera.source, frame)
+        
+        with self.results_lock:
+            self.results[camera.source] = passed_alerts
+    
+    def _log_frame_info(self, camera, enabled_algos):
+        """记录帧处理信息"""
+        if self.frame_counter % 100 == 0:
+            logging.info(f"[AI分析] 帧#{self.frame_counter} | 摄像头: {camera.name} | 启用算法: {enabled_algos}")
+        
+        if not enabled_algos and self.frame_counter % 200 == 0:
+            logging.warning(f"[AI分析] 摄像头 {camera.name} 未启用任何算法，跳过分析")
+    
+    def _log_detection_results(self, camera, all_results):
+        """记录检测结果"""
+        if all_results and self.frame_counter % 50 == 0:
+            logging.debug(f"[AI分析] {camera.name} 检测到 {len(all_results)} 个结果")
     
     def _get_camera_enabled_algorithms(self, camera) -> List[int]:
         """获取摄像头启用的算法"""

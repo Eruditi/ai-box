@@ -80,11 +80,23 @@ class WebServer:
         
         @self.app.get("/", response_class=HTMLResponse)
         async def root():
-            index_path = os.path.join(templates_dir, 'index.html')
-            if os.path.exists(index_path):
-                with open(index_path, 'r', encoding='utf-8') as f:
-                    return f.read()
-            return self._get_index_html()
+            try:
+                # 验证templates_dir是安全的目录
+                templates_dir_abs = os.path.abspath(templates_dir)
+                index_path = os.path.abspath(os.path.join(templates_dir, 'index.html'))
+                
+                # 防止目录遍历攻击
+                if not index_path.startswith(templates_dir_abs):
+                    logging.warning(f"[安全] 检测到非法路径访问: {index_path}")
+                    return Response("Access denied", status_code=403)
+                
+                if os.path.exists(index_path) and os.path.isfile(index_path):
+                    with open(index_path, 'r', encoding='utf-8') as f:
+                        return f.read()
+                return self._get_index_html()
+            except Exception as e:
+                logging.error(f"[首页] 加载失败: {e}")
+                return Response("Internal server error", status_code=500)
         
         @self.app.get("/api/status")
         async def get_status():
@@ -196,21 +208,35 @@ class WebServer:
         
         @self.app.get("/stream")
         async def primary_video_stream():
-            if self.process_manager:
-                active_cameras = self.process_manager.get_active_cameras()
-                if active_cameras:
-                    return StreamingResponse(
-                        self._generate_frames_async(active_cameras[0]),
-                        media_type="multipart/x-mixed-replace; boundary=frame"
-                    )
-            elif self.camera_manager:
-                camera = self.camera_manager.get_primary_camera()
-                if camera:
-                    return StreamingResponse(
-                        self._generate_frames_async(camera.source),
-                        media_type="multipart/x-mixed-replace; boundary=frame"
-                    )
-            return Response("No camera available", status_code=404)
+            try:
+                if self.process_manager:
+                    active_cameras = self.process_manager.get_active_cameras()
+                    if active_cameras:
+                        return StreamingResponse(
+                            self._generate_frames_async(active_cameras[0]),
+                            media_type="multipart/x-mixed-replace; boundary=frame",
+                            headers={
+                                "Cache-Control": "no-cache, no-store, must-revalidate",
+                                "Connection": "keep-alive",
+                                "X-Accel-Buffering": "no"
+                            }
+                        )
+                elif self.camera_manager:
+                    camera = self.camera_manager.get_primary_camera()
+                    if camera and camera.connected:
+                        return StreamingResponse(
+                            self._generate_frames_async(camera.source),
+                            media_type="multipart/x-mixed-replace; boundary=frame",
+                            headers={
+                                "Cache-Control": "no-cache, no-store, must-revalidate",
+                                "Connection": "keep-alive",
+                                "X-Accel-Buffering": "no"
+                            }
+                        )
+                return Response("No camera available", status_code=404)
+            except Exception as e:
+                logging.error(f"[主视频流] 错误: {e}")
+                return Response(f"Stream error: {str(e)}", status_code=500)
         
         @self.app.get("/api/cameras")
         async def get_cameras():
