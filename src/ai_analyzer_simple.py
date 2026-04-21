@@ -115,32 +115,35 @@ class SimpleAIAnalyzer:
     
     def _process_camera_frame(self, camera):
         """处理单个摄像头的帧"""
-        if not camera.connected:
+        if not camera or not camera.connected:
             return
         
-        frame = camera.get_frame()
-        if frame is None:
-            return
-        
-        enabled_algos = self._get_camera_enabled_algorithms(camera)
-        self._log_frame_info(camera, enabled_algos)
-        
-        if not enabled_algos:
-            return
-        
-        all_results = self.algorithm_manager.process_frame(frame, enabled_algos)
-        self._log_detection_results(camera, all_results)
-        
-        passed_alerts = self.quality_controller.process(
-            all_results, frame, camera.source
-        )
-        
-        if passed_alerts:
-            logging.info(f"[AI分析] {camera.name} 产生 {len(passed_alerts)} 条告警")
-            self._handle_alerts(passed_alerts, camera.source, frame)
-        
-        with self.results_lock:
-            self.results[camera.source] = passed_alerts
+        try:
+            frame = camera.get_frame()
+            if frame is None:
+                return
+            
+            enabled_algos = self._get_camera_enabled_algorithms(camera)
+            self._log_frame_info(camera, enabled_algos)
+            
+            if not enabled_algos:
+                return
+            
+            all_results = self.algorithm_manager.process_frame(frame, enabled_algos)
+            self._log_detection_results(camera, all_results)
+            
+            passed_alerts = self.quality_controller.process(
+                all_results, frame, camera.source
+            )
+            
+            if passed_alerts:
+                logging.info(f"[AI分析] {camera.name} 产生 {len(passed_alerts)} 条告警")
+                self._handle_alerts(passed_alerts, camera.source, frame)
+            
+            with self.results_lock:
+                self.results[camera.source] = passed_alerts
+        except Exception as e:
+            logging.error(f"[AI分析] 处理摄像头 {camera.name if camera else 'unknown'} 时出错: {e}")
     
     def _log_frame_info(self, camera, enabled_algos):
         """记录帧处理信息"""

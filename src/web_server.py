@@ -171,7 +171,24 @@ class WebServer:
             try:
                 decoded_path = urllib.parse.unquote(camera_source)
                 
-                if os.path.exists(decoded_path) and decoded_path.lower().endswith(('.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv')):
+                # 安全检查：防止目录遍历攻击
+                abs_path = os.path.abspath(decoded_path)
+                # 只允许访问特定目录下的视频文件
+                allowed_dirs = [
+                    os.path.abspath('src/uploads/videos'),
+                    os.path.abspath('uploads/videos'),
+                    os.path.abspath('.'),
+                ]
+                
+                # 检查是否在允许的目录下
+                is_allowed = any(abs_path.startswith(d) for d in allowed_dirs)
+                if not is_allowed and os.path.exists(abs_path):
+                    logging.warning(f"[安全] 拒绝访问路径: {abs_path}")
+                    return Response("Access denied", status_code=403)
+                
+                # 验证文件扩展名
+                allowed_exts = ('.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv')
+                if os.path.exists(decoded_path) and decoded_path.lower().endswith(allowed_exts):
                     from fastapi.responses import FileResponse
                     return FileResponse(
                         decoded_path, 
