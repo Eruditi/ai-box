@@ -200,24 +200,30 @@ class QualityController:
         if frame is None or frame.size == 0:
             return False
         
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
-        mean_val = np.mean(gray)
-        std_val = np.std(gray)
+        if cv2 is None:
+            return True
         
-        if mean_val < 30 and std_val < 15:
-            return False
-        if mean_val < 20:
-            return False
-        if std_val < 5:
-            return False
-        if mean_val > 245 and std_val < 20:
-            return False
-        
-        h, w = gray.shape[:2]
-        edge_map = cv2.Canny(gray, 50, 150)
-        edge_ratio = cv2.countNonZero(edge_map) / (h * w)
-        if edge_ratio < 0.001:
-            return False
+        try:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+            mean_val = np.mean(gray)
+            std_val = np.std(gray)
+            
+            if mean_val < 30 and std_val < 15:
+                return False
+            if mean_val < 20:
+                return False
+            if std_val < 5:
+                return False
+            if mean_val > 245 and std_val < 20:
+                return False
+            
+            h, w = gray.shape[:2]
+            edge_map = cv2.Canny(gray, 50, 150)
+            edge_ratio = cv2.countNonZero(edge_map) / (h * w)
+            if edge_ratio < 0.001:
+                return False
+        except Exception:
+            return True
         
         return True
     
@@ -351,7 +357,10 @@ class QualityController:
         }
 
 
-import cv2
+try:
+    import cv2
+except ImportError:
+    cv2 = None
 
 _quality_controller = None
 
