@@ -107,9 +107,11 @@ class EnhancedAIAnalyzer:
         logging.info("[AI分析器] 三省六部初始化完成")
 
     def _load_enabled_algorithms(self) -> List[int]:
+        """加载启用的算法列表，为空时默认启用所有算法"""
         enabled = self.config.get('ai.enabled_algorithms', [])
-        if enabled is None or len(enabled) == 0:
-            return []
+        if not enabled:
+            enabled = list(self.algorithm_manager.algorithm_configs.keys())
+            logging.info(f"[算法] 配置为空，默认启用所有算法: {len(enabled)} 个")
         return enabled
     
     def _get_camera_enabled_algorithms(self, camera) -> List[int]:
