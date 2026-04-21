@@ -1,0 +1,131 @@
+system:
+  name: AI Box
+  version: 1.9.4
+  log_level: INFO
+  auto_restart: true
+
+multiprocess:
+  enabled: false
+
+camera:
+  high_performance: false
+  auto_detect: false
+  detection_interval: 1
+  max_cameras: 4
+  default_resolution: [1280, 720]
+  default_fps: 30
+
+ai:
+  enabled: true
+  model_path: models/
+  detection_threshold: 0.5
+  analysis_interval: 1
+  enabled_algorithms: []
+  yolo:
+    model_size: m
+    accelerator: auto
+
+gpu:
+  enabled: true
+  device_id: 0
+  tensorrt:
+    enabled: true
+    precision: fp16
+    max_workspace_size: 1073741824
+  onnx:
+    enabled: true
+    optimization_level: all
+
+plugin:
+  enabled: true
+  plugin_dir: plugins
+  auto_load: true
+  trusted_only: false
+
+cloud:
+  enabled: false
+  provider: custom
+  endpoint: ""
+  api_key: ""
+  secret_key: ""
+  region: ""
+  bucket: ""
+  sync_interval: 300
+  features:
+    alert_upload: true
+    frame_upload: true
+    deep_analysis: false
+    config_sync: true
+
+web:
+  enabled: true
+  host: 0.0.0.0
+  port: 8000
+  api_prefix: /api
+
+storage:
+  log_dir: ""
+  data_dir: data/
+  model_dir: models/
+  max_log_size: 100
+  max_log_files: 10
+
+network:
+  mode: balanced
+  interfaces:
+    - eth0
+    - eth1
+  failover_enabled: true
+
+health:
+  check_interval: 30
+  auto_recover: true
+  max_restarts: 5
+
+audit:
+  cooldown_seconds: 60
+  min_confidence: 0.65
+  iou_threshold: 0.7
+  consecutive_frames: 2
+  dynamic_cooldown: true
+
+supervisor:
+  max_retries_per_algo: 3
+  quality_pass_threshold: 0.85
+  quality_partial_threshold: 0.6
+  alert_aggregation: true
+  aggregation_window: 5
+
+secretariat:
+  strategy: adaptive
+  preemption_enabled: true
+  max_concurrent_per_dept: 3
+  max_queue_size: 500
+
+push:
+  wework:
+    enabled: false
+    webhook_url: ""
+    secret: ""
+    cooldown_seconds: 60
+    max_per_hour: 100
+  dingtalk:
+    enabled: false
+    webhook_url: ""
+    secret: ""
+    cooldown_seconds: 60
+    max_per_hour: 100
+  feishu:
+    enabled: false
+    webhook_url: ""
+    cooldown_seconds: 60
+    max_per_hour: 100
+
+llm:
+  enabled: false
+  provider: deepseek
+  api_key: ""
+  api_base: ""
+  model: ""
+  max_tokens: 500
+  temperature: 0.7
