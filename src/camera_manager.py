@@ -288,3 +288,10 @@ class CameraManager:
         del self.cameras[source]
         logging.info(f"Camera removed: {source}")
         return True
+    
+    def get_current_frame(self, source: str) -> Optional[np.ndarray]:
+        """获取指定摄像头的当前帧"""
+        camera = self.get_camera(source)
+        if camera:
+            return camera.get_frame()
+        return None

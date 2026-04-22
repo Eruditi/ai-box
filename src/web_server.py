@@ -527,6 +527,113 @@ class WebServer:
                 return {'queue': self.ai_analyzer.supervisor.peek_retry_queue()}
             return {'queue': []}
         
+        @self.app.get("/api/screenshot/{camera_source}")
+        async def take_screenshot(camera_source: str):
+            """截取指定摄像头的当前画面"""
+            try:
+                # 解码摄像头源
+                import urllib.parse
+                camera_source = urllib.parse.unquote(camera_source)
+                
+                if self.camera_manager:
+                    # 尝试获取摄像头的当前帧
+                    frame = await run_in_threadpool(self.camera_manager.get_current_frame, camera_source)
+                    
+                    if frame is not None:
+                        # 编码为JPEG
+                        _, buffer = cv2.imencode('.jpg', frame)
+                        jpg_bytes = buffer.tobytes()
+                        
+                        # 生成文件名
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        filename = f'screenshot_{timestamp}.jpg'
+                        
+                        # 保存截图到uploads目录
+                        uploads_dir = os.path.join(os.path.dirname(__file__), 'uploads', 'screenshots')
+                        os.makedirs(uploads_dir, exist_ok=True)
+                        screenshot_path = os.path.join(uploads_dir, filename)
+                        
+                        with open(screenshot_path, 'wb') as f:
+                            f.write(jpg_bytes)
+                        
+                        # 返回截图数据
+                        return Response(content=jpg_bytes, media_type="image/jpeg", headers={
+                            "Content-Disposition": f"attachment; filename={filename}"
+                        })
+                    else:
+                        return {"success": False, "error": "无法获取摄像头画面"}
+                else:
+                    return {"success": False, "error": "摄像头管理器未初始化"}
+            except Exception as e:
+                logging.error(f"截图失败: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.app.get("/api/notifications")
+        async def get_notifications():
+            """获取通知列表"""
+            try:
+                # 模拟通知数据
+                notifications = [
+                    {
+                        "id": 1,
+                        "title": "系统启动",
+                        "message": "AI边缘计算盒子已成功启动",
+                        "type": "info",
+                        "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "read": False
+                    },
+                    {
+                        "id": 2,
+                        "title": "摄像头连接",
+                        "message": "摄像头已成功连接",
+                        "type": "success",
+                        "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "read": False
+                    },
+                    {
+                        "id": 3,
+                        "title": "算法更新",
+                        "message": "AI算法已更新到最新版本",
+                        "type": "info",
+                        "timestamp": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                        "read": True
+                    }
+                ]
+                return {"success": True, "notifications": notifications, "unread_count": 2}
+            except Exception as e:
+                logging.error(f"获取通知失败: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.app.put("/api/notifications/{notification_id}/read")
+        async def mark_notification_read(notification_id: int):
+            """标记通知为已读"""
+            try:
+                # 模拟标记为已读
+                return {"success": True, "message": "通知已标记为已读"}
+            except Exception as e:
+                logging.error(f"标记通知失败: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.app.delete("/api/notifications/{notification_id}")
+        async def delete_notification(notification_id: int):
+            """删除通知"""
+            try:
+                # 模拟删除通知
+                return {"success": True, "message": "通知已删除"}
+            except Exception as e:
+                logging.error(f"删除通知失败: {e}")
+                return {"success": False, "error": str(e)}
+        
+        @self.app.delete("/api/notifications")
+        async def clear_notifications():
+            """清空所有通知"""
+            try:
+                # 模拟清空通知
+                return {"success": True, "message": "所有通知已清空"}
+            except Exception as e:
+                logging.error(f"清空通知失败: {e}")
+                return {"success": False, "error": str(e)}
+        
         @self.app.get("/api/workflow/realtime")
         async def get_workflow_realtime():
             """获取三省六部实时状态"""
