@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from typing import Dict, Any
 
-from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory
+from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory, safe_parse_detection
 from .yolo_engine import get_yolo_engine
 
 
@@ -36,11 +36,14 @@ class FaceDetectionAlgorithm(AlgorithmBase):
         detections = self.yolo.detect(frame, classes=[0])
         faces = []
         for det in detections:
-            x1, y1, x2, y2 = det['bbox']
+            parsed = safe_parse_detection(det)
+            if not parsed:
+                continue
+            x1, y1, x2, y2 = parsed['bbox']
             face_h = y2 - y1
             face_w = x2 - x1
             if 0.5 < face_h / face_w < 2.0 and face_h * face_w > 1000:
-                faces.append(det)
+                faces.append(parsed)
 
         if faces:
             best = max(faces, key=lambda d: d['confidence'])
@@ -75,13 +78,15 @@ class HumanShapeAlgorithm(AlgorithmBase):
         )
 
         detections = self.yolo.detect(frame, classes=[0])
-        if detections:
-            best = max(detections, key=lambda d: d['confidence'])
+        parsed_dets = [safe_parse_detection(d) for d in detections]
+        parsed_dets = [p for p in parsed_dets if p is not None]
+        if parsed_dets:
+            best = max(parsed_dets, key=lambda d: d['confidence'])
             x1, y1, x2, y2 = best['bbox']
             result.detected = True
             result.confidence = best['confidence']
             result.bounding_box = (x1, y1, x2 - x1, y2 - y1)
-            result.extra_data = {'person_count': len(detections)}
+            result.extra_data = {'person_count': len(parsed_dets)}
 
         return result
 
@@ -108,15 +113,17 @@ class MotorVehicleAlgorithm(AlgorithmBase):
         )
 
         detections = self.yolo.detect(frame, classes=[2, 5, 7])
-        if detections:
-            best = max(detections, key=lambda d: d['confidence'])
+        parsed_dets = [safe_parse_detection(d) for d in detections]
+        parsed_dets = [p for p in parsed_dets if p is not None]
+        if parsed_dets:
+            best = max(parsed_dets, key=lambda d: d['confidence'])
             x1, y1, x2, y2 = best['bbox']
             result.detected = True
             result.confidence = best['confidence']
             result.bounding_box = (x1, y1, x2 - x1, y2 - y1)
             result.extra_data = {
-                'vehicle_count': len(detections),
-                'vehicle_types': [d['class_name'] for d in detections]
+                'vehicle_count': len(parsed_dets),
+                'vehicle_types': [d['class_name'] for d in parsed_dets]
             }
 
         return result
@@ -144,15 +151,17 @@ class NonMotorVehicleAlgorithm(AlgorithmBase):
         )
 
         detections = self.yolo.detect(frame, classes=[1, 3])
-        if detections:
-            best = max(detections, key=lambda d: d['confidence'])
+        parsed_dets = [safe_parse_detection(d) for d in detections]
+        parsed_dets = [p for p in parsed_dets if p is not None]
+        if parsed_dets:
+            best = max(parsed_dets, key=lambda d: d['confidence'])
             x1, y1, x2, y2 = best['bbox']
             result.detected = True
             result.confidence = best['confidence']
             result.bounding_box = (x1, y1, x2 - x1, y2 - y1)
             result.extra_data = {
-                'vehicle_count': len(detections),
-                'vehicle_types': [d['class_name'] for d in detections]
+                'vehicle_count': len(parsed_dets),
+                'vehicle_types': [d['class_name'] for d in parsed_dets]
             }
 
         return result
@@ -181,7 +190,10 @@ class LicensePlateAlgorithm(AlgorithmBase):
 
         vehicle_dets = self.yolo.detect(frame, classes=[2, 5, 7])
         for vdet in vehicle_dets:
-            x1, y1, x2, y2 = vdet['bbox']
+            parsed = safe_parse_detection(vdet)
+            if not parsed:
+                continue
+            x1, y1, x2, y2 = parsed['bbox']
             vh = y2 - y1
             plate_region = frame[y2 - vh // 4:y2, x1:x2]
             if plate_region.size == 0:
@@ -198,7 +210,7 @@ class LicensePlateAlgorithm(AlgorithmBase):
 
             if region_area > 0 and plate_pixels / region_area > 0.15:
                 result.detected = True
-                result.confidence = min(0.85, vdet['confidence'] + 0.1)
+                result.confidence = min(0.85, parsed['confidence'] + 0.1)
                 result.bounding_box = (x1, y2 - vh // 4, x2 - x1, vh // 4)
                 result.extra_data = {'plate_color_ratio': float(plate_pixels / region_area)}
                 break

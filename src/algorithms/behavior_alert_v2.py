@@ -111,18 +111,18 @@ class FallDetectionAlgorithmV2(AlgorithmBase):
         poses = self.pose_estimator.detect_poses(frame)
         
         for pose in poses:
-            keypoints = pose['keypoints']
-            confidence = pose['confidence']
-            bbox = pose['bbox']
-            
+            keypoints = pose.get('keypoints')
+            confidence = pose.get('confidence', 0)
+            bbox = pose.get('bbox')
+
             if keypoints is None:
                 continue
-            
+
             left_shoulder = self.pose_estimator.get_keypoint(keypoints, 'left_shoulder')
             right_shoulder = self.pose_estimator.get_keypoint(keypoints, 'right_shoulder')
             left_hip = self.pose_estimator.get_keypoint(keypoints, 'left_hip')
             right_hip = self.pose_estimator.get_keypoint(keypoints, 'right_hip')
-            
+
             if left_shoulder and right_shoulder and left_hip and right_hip:
                 shoulder_center = np.array([
                     (left_shoulder[0] + right_shoulder[0]) / 2,
@@ -283,7 +283,7 @@ class FightingDetectionAlgorithm(AlgorithmBase):
             motions = []
             
             for pose in poses:
-                keypoints = pose['keypoints']
+                keypoints = pose.get('keypoints')
                 if keypoints is not None and len(self.prev_keypoints) > 0:
                     for prev_kp in self.prev_keypoints:
                         if prev_kp is not None and keypoints.shape == prev_kp.shape:
@@ -299,7 +299,7 @@ class FightingDetectionAlgorithm(AlgorithmBase):
                     'person_count': len(poses)
                 }
         
-        self.prev_keypoints = [p['keypoints'] for p in poses if p['keypoints'] is not None]
+        self.prev_keypoints = [p.get('keypoints') for p in poses if p.get('keypoints') is not None]
         
         return result
 
@@ -327,13 +327,13 @@ class ClimbingDetectionAlgorithm(AlgorithmBase):
         poses = self.pose_estimator.detect_poses(frame)
         
         for pose in poses:
-            keypoints = pose['keypoints']
-            confidence = pose['confidence']
-            bbox = pose['bbox']
-            
+            keypoints = pose.get('keypoints')
+            confidence = pose.get('confidence', 0)
+            bbox = pose.get('bbox')
+
             if keypoints is None:
                 continue
-            
+
             left_ankle = self.pose_estimator.get_keypoint(keypoints, 'left_ankle')
             right_ankle = self.pose_estimator.get_keypoint(keypoints, 'right_ankle')
             left_hip = self.pose_estimator.get_keypoint(keypoints, 'left_hip')

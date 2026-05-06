@@ -30,6 +30,7 @@ class Camera:
         self.thread = None
         self.reconnect_attempts = 0
         self.max_reconnect_attempts = 5
+        self.reconnect_backoff = 5.0
         self.settings = {
             'ai_enabled': True,
             'enabled_algorithms': None,
@@ -45,6 +46,7 @@ class Camera:
             if self.decoder and self.decoder.connected:
                 self.connected = True
                 self.reconnect_attempts = 0
+                self.reconnect_backoff = 5.0
                 logging.info(f"Camera connected: {self.name} ({self.source})")
                 return True
             else:
@@ -89,8 +91,10 @@ class Camera:
                         time.sleep(2)
                         continue
                     else:
+                        logging.warning(f"Camera {self.name} reached max reconnect attempts, backing off {self.reconnect_backoff}s")
+                        time.sleep(self.reconnect_backoff)
+                        self.reconnect_backoff = min(self.reconnect_backoff * 2, 60.0)
                         self.reconnect_attempts = 0
-                        time.sleep(5)
                         continue
                 
                 frame_delay = 0
@@ -102,6 +106,7 @@ class Camera:
                     with self.frame_lock:
                         self.frame = frame.copy()
                     self.reconnect_attempts = 0
+                    self.reconnect_backoff = 5.0
                     
                     if frame_delay > 0:
                         elapsed = time.time() - last_frame_time

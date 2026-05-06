@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 from typing import Dict, Any, List
 
-from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory
+from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory, safe_parse_detection
 from .yolo_engine import YOLOEngine
 
 LIVESTOCK_CLASSES = [17, 18, 19]
@@ -48,13 +48,15 @@ class LivestockDetectionAlgorithm(AlgorithmBase):
 
         livestock_boxes = []
         for det in detections:
-            bbox = det['bbox']
-            x, y, x2, y2 = bbox
+            parsed = safe_parse_detection(det)
+            if not parsed:
+                continue
+            x, y, x2, y2 = parsed['bbox']
             w, h = x2 - x, y2 - y
             livestock_boxes.append({
                 'x': x, 'y': y, 'w': w, 'h': h,
-                'type': det['class_name'],
-                'confidence': det['confidence']
+                'type': parsed['class_name'],
+                'confidence': parsed['confidence']
             })
 
         if len(livestock_boxes) > 0:
@@ -103,8 +105,10 @@ class GrazingProhibitionAlgorithm(AlgorithmBase):
 
         livestock_in_prohibited = []
         for det in detections:
-            bbox = det['bbox']
-            x, y, x2, y2 = bbox
+            parsed = safe_parse_detection(det)
+            if not parsed:
+                continue
+            x, y, x2, y2 = parsed['bbox']
             cx, cy = (x + x2) // 2, (y + y2) // 2
 
             for area in self.prohibited_areas:
@@ -113,8 +117,8 @@ class GrazingProhibitionAlgorithm(AlgorithmBase):
                     if ax <= cx <= ax + aw and ay <= cy <= ay + ah:
                         livestock_in_prohibited.append({
                             'x': x, 'y': y, 'w': x2 - x, 'h': y2 - y,
-                            'type': det['class_name'],
-                            'confidence': det['confidence']
+                            'type': parsed['class_name'],
+                            'confidence': parsed['confidence']
                         })
                         break
 

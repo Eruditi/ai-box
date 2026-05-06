@@ -9,38 +9,8 @@ import numpy as np
 import logging
 from typing import Dict, Any, List, Tuple, Optional
 
-from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory
+from .algorithm_base import AlgorithmBase, AlgorithmResult, AlgorithmCategory, safe_parse_detection
 from .yolo_engine import get_yolo_engine, HELMET_COLORS
-
-
-def safe_parse_detection(det) -> Optional[Tuple[List[int], float]]:
-    """
-    安全解析检测结果，支持字典和元组格式
-    返回: (bbox_list, confidence) 或 None
-    """
-    try:
-        if isinstance(det, dict):
-            bbox = det.get('bbox', [])
-            confidence = det.get('confidence', 0)
-        elif isinstance(det, (tuple, list)):
-            bbox = list(det[:4]) if len(det) >= 4 else []
-            confidence = float(det[4]) if len(det) > 4 else 0
-        else:
-            return None
-        
-        if not bbox or len(bbox) < 4:
-            return None
-            
-        x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-        
-        if x2 <= x1 or y2 <= y1:
-            return None
-            
-        return ([x1, y1, x2, y2], confidence)
-        
-    except Exception as e:
-        logging.debug(f"[检测解析] 跳过无效检测: {e}")
-        return None
 
 
 class NoHelmetAlgorithm(AlgorithmBase):
@@ -72,23 +42,13 @@ class NoHelmetAlgorithm(AlgorithmBase):
             
             for det in detections:
                 try:
-                    if isinstance(det, dict):
-                        bbox = det.get('bbox', [])
-                        confidence = det.get('confidence', 0)
-                    elif isinstance(det, (tuple, list)):
-                        bbox = list(det[:4]) if len(det) >= 4 else []
-                        confidence = float(det[4]) if len(det) > 4 else 0
-                    else:
+                    parsed = safe_parse_detection(det)
+                    if not parsed:
                         continue
-                    
-                    if not bbox or len(bbox) < 4:
-                        continue
-                    
-                    x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
-                    
-                    if x2 <= x1 or y2 <= y1:
-                        continue
-                    
+
+                    x1, y1, x2, y2 = parsed['bbox']
+                    confidence = parsed['confidence']
+
                     head_h = max(1, (y2 - y1) // 3)
                     head_region = frame[max(0, y1 - head_h):min(frame.shape[0], y1 + head_h), max(0, x1):min(frame.shape[1], x2)]
                     
@@ -150,7 +110,8 @@ class NoMaskAlgorithm(AlgorithmBase):
                 if not parsed:
                     continue
                     
-                x1, y1, x2, y2, confidence = *parsed[0], parsed[1]
+                x1, y1, x2, y2 = parsed['bbox']
+                confidence = parsed['confidence']
                 face_h = y2 - y1
                 mouth_region = frame[y1 + face_h * 2 // 3:min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
                 if mouth_region.size == 0 or mouth_region.shape[0] == 0:
@@ -203,7 +164,8 @@ class NoWorkwearAlgorithm(AlgorithmBase):
                 if not parsed:
                     continue
                     
-                x1, y1, x2, y2, confidence = *parsed[0], parsed[1]
+                x1, y1, x2, y2 = parsed['bbox']
+                confidence = parsed['confidence']
                 body_h = y2 - y1
                 body_region = frame[y1 + body_h // 3:min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
                 if body_region.size == 0 or body_region.shape[0] == 0:
@@ -256,7 +218,8 @@ class NoSafetyBeltAlgorithm(AlgorithmBase):
                 if not parsed:
                     continue
                     
-                x1, y1, x2, y2, confidence = *parsed[0], parsed[1]
+                x1, y1, x2, y2 = parsed['bbox']
+                confidence = parsed['confidence']
                 body_region = frame[max(0, y1):min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
                 if body_region.size == 0 or body_region.shape[0] == 0:
                     continue
@@ -314,7 +277,8 @@ class NoReflectiveVestAlgorithm(AlgorithmBase):
                 if not parsed:
                     continue
                     
-                x1, y1, x2, y2, confidence = *parsed[0], parsed[1]
+                x1, y1, x2, y2 = parsed['bbox']
+                confidence = parsed['confidence']
                 body_h = y2 - y1
                 body_region = frame[y1 + body_h // 4:min(frame.shape[0], y2), max(0, x1):min(frame.shape[1], x2)]
                 if body_region.size == 0 or body_region.shape[0] == 0:
@@ -367,19 +331,11 @@ class NoHelmetRidingAlgorithm(AlgorithmBase):
                 parsed = safe_parse_detection(det)
                 if not parsed:
                     continue
-                    
-                bbox, confidence = parsed[0], parsed[1]
-                
-                if isinstance(det, dict):
-                    class_id = det.get('class_id', 0)
-                elif len(det) > 4:
-                    try:
-                        class_id = int(det[4]) if len(det) > 5 else 0
-                    except:
-                        class_id = 0
-                else:
-                    class_id = 0
-                
+
+                bbox = parsed['bbox']
+                confidence = parsed['confidence']
+                class_id = parsed['class_id']
+
                 if class_id == 0:
                     persons.append({'bbox': bbox, 'confidence': confidence})
                 elif class_id in (1, 2, 3):
@@ -439,23 +395,35 @@ class MotorcycleInGasStationAlgorithm(AlgorithmBase):
             category=self.CATEGORY
         )
 
-        detections = self.yolo.detect(frame, classes=[0, 3])
-        motorcycles = [d for d in detections if d['class_id'] == 3]
-        persons = [d for d in detections if d['class_id'] == 0]
+        try:
+            detections = self.yolo.detect(frame, classes=[0, 3])
 
-        for moto in motorcycles:
-            mx1, my1, mx2, my2 = moto['bbox']
-            for person in persons:
-                px1, py1, px2, py2 = person['bbox']
-                if (px1 < mx2 and px2 > mx1 and
-                        abs(py2 - my1) < (my2 - my1) // 2):
-                    result.detected = True
-                    result.confidence = min(0.85, moto['confidence'] + person['confidence'])
-                    result.bounding_box = (min(mx1, px1), min(my1, py1),
-                                           max(mx2, px2) - min(mx1, px1),
-                                           max(my2, py2) - min(my1, py1))
+            motorcycles = []
+            persons = []
+            for det in detections:
+                parsed = safe_parse_detection(det)
+                if not parsed:
+                    continue
+                if parsed['class_id'] == 3:
+                    motorcycles.append(parsed)
+                elif parsed['class_id'] == 0:
+                    persons.append(parsed)
+
+            for moto in motorcycles:
+                mx1, my1, mx2, my2 = moto['bbox']
+                for person in persons:
+                    px1, py1, px2, py2 = person['bbox']
+                    if (px1 < mx2 and px2 > mx1 and
+                            abs(py2 - my1) < (my2 - my1) // 2):
+                        result.detected = True
+                        result.confidence = min(0.85, moto['confidence'] + person['confidence'])
+                        result.bounding_box = (min(mx1, px1), min(my1, py1),
+                                               max(mx2, px2) - min(mx1, px1),
+                                               max(my2, py2) - min(my1, py1))
+                        break
+                if result.detected:
                     break
-            if result.detected:
-                break
+        except Exception as e:
+            logging.error(f"[加油站摩托车检测] 处理失败: {e}")
 
         return result

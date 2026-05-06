@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
-from fastapi import FastAPI, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Response, UploadFile, File, Form, WebSocket, WebSocketDisconnect, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +25,8 @@ import json
 
 
 class WebServer:
+    _event_loop = None
+
     def __init__(self, config, camera_manager=None, ai_analyzer=None, ai_box=None):
         self.config = config
         self.camera_manager = camera_manager
@@ -70,6 +72,14 @@ class WebServer:
     
     def set_process_manager(self, process_manager):
         self.process_manager = process_manager
+
+    @staticmethod
+    def _validate_source(source: str) -> str:
+        if not source or len(source) < 1 or len(source) > 500:
+            return None
+        if any(ord(c) < 0x20 and c not in ('\t', '\n', '\r') for c in source):
+            return None
+        return source
 
     def _setup_routes(self):
         static_dir = os.path.join(os.path.dirname(__file__), 'web', 'static')
@@ -126,47 +136,13 @@ class WebServer:
                     'architecture': 'none'
                 }
         
-        @self.app.get("/api/health")
-        async def get_health():
-            try:
-                if self.ai_box and hasattr(self.ai_box, 'health_monitor') and self.ai_box.health_monitor:
-                    stats = self.ai_box.health_monitor.get_system_stats()
-                    return {
-                        'status': 'healthy',
-                        'cpu': stats.get('cpu_percent', 0),
-                        'memory': stats.get('memory_percent', 0),
-                        'disk': stats.get('disk_percent', 0),
-                        'uptime': time.time() - self.start_time,
-                        'memory_used_mb': stats.get('memory_used_mb', 0),
-                        'disk_used_gb': stats.get('disk_used_gb', 0),
-                        'process_count': stats.get('process', {}).get('process_count', 0)
-                    }
-                else:
-                    import psutil
-                    cpu = psutil.cpu_percent()
-                    memory = psutil.virtual_memory().percent
-                    try:
-                        if os.name == 'nt':
-                            disk = psutil.disk_usage('C:\\')
-                        else:
-                            disk = psutil.disk_usage('/')
-                    except Exception:
-                        disk = None
-                    return {
-                        'status': 'healthy',
-                        'cpu': cpu,
-                        'memory': memory,
-                        'disk': disk.percent if disk else 0,
-                        'uptime': time.time() - self.start_time
-                    }
-            except Exception as e:
-                logging.error(f"Health check error: {e}")
-                return {'status': 'error', 'message': str(e)}
-        
         @self.app.get("/stream/{camera_source:path}")
         async def video_stream(camera_source: str):
             import os
             import urllib.parse
+            
+            if not self._validate_source(camera_source):
+                return Response("Invalid source parameter", status_code=400)
             
             try:
                 decoded_path = urllib.parse.unquote(camera_source)
@@ -279,11 +255,13 @@ class WebServer:
             return {"cameras": cameras}
         
         @self.app.get("/api/records")
-        async def get_records(date: str = None, type: str = None):
+        async def get_records(date: str = None, type: str = None,
+                              limit: int = Query(default=50, ge=1, le=10000),
+                              offset: int = Query(default=0, ge=0)):
             records = []
             if self.ai_analyzer:
                 try:
-                    records = self.ai_analyzer.get_alerts(limit=50, date=date, alert_type=type)
+                    records = self.ai_analyzer.get_alerts(limit=limit, offset=offset, date=date, alert_type=type)
                 except Exception as e:
                     logging.error(f"Get alerts error: {e}")
             return {"records": records}
@@ -531,9 +509,11 @@ class WebServer:
         async def take_screenshot(camera_source: str):
             """截取指定摄像头的当前画面"""
             try:
-                # 解码摄像头源
                 import urllib.parse
                 camera_source = urllib.parse.unquote(camera_source)
+                
+                if not self._validate_source(camera_source):
+                    return Response("Invalid source parameter", status_code=400)
                 
                 if self.camera_manager:
                     # 尝试获取摄像头的当前帧
@@ -811,7 +791,8 @@ class WebServer:
         
         # ===== 数据导出 API =====
         @self.app.get("/api/export/alerts")
-        async def export_alerts(format: str = "csv", date_from: str = None, date_to: str = None, alert_type: str = None):
+        async def export_alerts(format: str = "csv", date_from: str = None, date_to: str = None,
+                                alert_type: str = None, limit: int = Query(default=10000, ge=1, le=10000)):
             """导出告警数据（支持CSV和JSON格式）"""
             import csv
             import io
@@ -820,7 +801,7 @@ class WebServer:
             alerts = []
             if self.ai_analyzer and hasattr(self.ai_analyzer, 'get_alerts'):
                 try:
-                    alerts = self.ai_analyzer.get_alerts(limit=10000, date=None, alert_type=alert_type)
+                    alerts = self.ai_analyzer.get_alerts(limit=limit, date=None, alert_type=alert_type)
                     
                     # 日期过滤
                     if date_from or date_to:
@@ -891,7 +872,7 @@ class WebServer:
                 report["cameras"] = {
                     "total": len(cams),
                     "online": sum(1 for c in cams if c.connected),
-                    "details": [{"id": c.id, "name": c.name, "status": "online" if c.connected else "offline"} for c in cams]
+                    "details": [{"id": c.source, "name": c.name, "status": "online" if c.connected else "offline"} for c in cams]
                 }
             
             # 告警统计
@@ -1067,6 +1048,8 @@ class WebServer:
         @self.app.delete("/api/cameras/{source:path}")
         async def remove_camera(source: str):
             """移除摄像头"""
+            if not self._validate_source(source):
+                return Response("Invalid source parameter", status_code=400)
             if self.camera_manager:
                 success = self.camera_manager.remove_camera(source)
                 if success:
@@ -1077,6 +1060,8 @@ class WebServer:
         @self.app.get("/api/cameras/{source:path}/settings")
         async def get_camera_settings(source: str):
             """获取摄像头设置"""
+            if not self._validate_source(source):
+                return Response("Invalid source parameter", status_code=400)
             if self.camera_manager:
                 camera = self.camera_manager.get_camera(source)
                 if camera:
@@ -1097,6 +1082,8 @@ class WebServer:
         @self.app.put("/api/cameras/{source:path}/settings")
         async def update_camera_settings(source: str, settings: dict):
             """更新摄像头设置"""
+            if not self._validate_source(source):
+                return Response("Invalid source parameter", status_code=400)
             if self.camera_manager:
                 camera = self.camera_manager.get_camera(source)
                 if camera:
@@ -1161,7 +1148,7 @@ class WebServer:
                 return {'success': False, 'error': str(e)}
         
         @self.app.get("/api/lm/analyze")
-        async def analyze_alert_patterns(hours: int = 24):
+        async def analyze_alert_patterns(hours: int = Query(default=24, ge=1, le=8760)):
             """分析告警模式"""
             try:
                 from lm_capability import get_lm_capability_manager
@@ -1299,6 +1286,8 @@ class WebServer:
         @self.app.get("/api/scene/info/{camera_source:path}")
         async def get_scene_info(camera_source: str):
             """获取摄像头场景信息"""
+            if not self._validate_source(camera_source):
+                return Response("Invalid source parameter", status_code=400)
             try:
                 from scene_adaptive import get_scene_adaptive_controller
                 controller = get_scene_adaptive_controller()
@@ -1332,7 +1321,7 @@ class WebServer:
                 return {'success': False, 'error': str(e)}
         
         @self.app.get("/api/correlation/alerts")
-        async def get_correlation_alerts(limit: int = 100):
+        async def get_correlation_alerts(limit: int = Query(default=100, ge=1, le=10000)):
             """获取关联告警"""
             try:
                 from cross_camera_correlator import get_cross_camera_correlator
@@ -1380,6 +1369,8 @@ class WebServer:
         @self.app.get("/api/plugin/validate/{plugin_dir:path}")
         async def validate_plugin(plugin_dir: str):
             """验证插件"""
+            if not self._validate_source(plugin_dir):
+                return Response("Invalid plugin directory parameter", status_code=400)
             try:
                 from plugin_sdk import PluginSDK
                 result = PluginSDK.validate_plugin(plugin_dir)
@@ -1531,7 +1522,7 @@ class WebServer:
             return {'success': False, 'error': 'GPU加速器未启用'}
         
         @self.app.post("/api/gpu/benchmark")
-        async def gpu_benchmark(model_path: str = None, iterations: int = 100):
+        async def gpu_benchmark(model_path: str = None, iterations: int = Query(default=100, ge=1, le=1000)):
             if self.ai_box and hasattr(self.ai_box, 'gpu_accelerator') and self.ai_box.gpu_accelerator:
                 if model_path:
                     from ultralytics import YOLO
@@ -1630,7 +1621,8 @@ class WebServer:
                 mem = psutil.virtual_memory()
                 health_status["metrics"]["memory_usage_mb"] = round(mem.used / (1024 * 1024), 1)
                 health_status["metrics"]["memory_percent"] = mem.percent
-                disk = psutil.disk_usage('/')
+                disk_path = 'C:\\' if os.name == 'nt' else '/'
+                disk = psutil.disk_usage(disk_path)
                 health_status["metrics"]["disk_usage_percent"] = round(disk.used / disk.total * 100, 1)
                 
                 # 内存使用率超过90%标记为degraded
@@ -1677,7 +1669,7 @@ class WebServer:
                 return {"success": False, "error": str(e)}
         
         @self.app.get("/api/log/actions")
-        async def get_action_logs(limit: int = 100, action_filter: str = None, page_filter: str = None):
+        async def get_action_logs(limit: int = Query(default=100, ge=1, le=10000), action_filter: str = None, page_filter: str = None):
             """获取操作日志列表"""
             logs = self.action_logs.copy()
             
@@ -1884,6 +1876,8 @@ class WebServer:
 
     async def _generate_frames_async(self, camera_source: str):
         """异步生成视频帧"""
+        placeholder_count = 0
+        PLACEHOLDER_THRESHOLD = 50
         while True:
             try:
                 frame = None
@@ -1896,15 +1890,15 @@ class WebServer:
                         frame = camera.get_frame()
                 
                 if frame is not None and frame.size > 0:
-                    # 检查帧是否有效（不是全黑）
                     if np.mean(frame) > 10:
+                        placeholder_count = 0
                         ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                         if ret:
                             yield (b'--frame\r\n'
                                    b'Content-Type: image/jpeg\r\n\r\n' + 
                                    buffer.tobytes() + b'\r\n')
                     else:
-                        # 帧太暗，显示提示
+                        placeholder_count += 1
                         placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
                         cv2.putText(placeholder, f"Camera: {camera_source}", (50, 200), 
                                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
@@ -1918,7 +1912,7 @@ class WebServer:
                                    b'Content-Type: image/jpeg\r\n\r\n' + 
                                    buffer.tobytes() + b'\r\n')
                 else:
-                    # 无帧数据，显示状态信息
+                    placeholder_count += 1
                     placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
                     cv2.putText(placeholder, f"Camera: {camera_source}", (50, 200), 
                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
@@ -1931,10 +1925,18 @@ class WebServer:
                         yield (b'--frame\r\n'
                                b'Content-Type: image/jpeg\r\n\r\n' + 
                                buffer.tobytes() + b'\r\n')
+            except asyncio.CancelledError:
+                logging.info(f"Frame generator cancelled for camera: {camera_source}")
+                break
             except Exception as e:
                 logging.error(f"Frame generation error: {e}")
             
-            await asyncio.sleep(0.1)
+            sleep_delay = 0.5 if placeholder_count >= PLACEHOLDER_THRESHOLD else 0.1
+            try:
+                await asyncio.sleep(sleep_delay)
+            except asyncio.CancelledError:
+                logging.info(f"Frame generator cancelled during sleep for camera: {camera_source}")
+                break
 
         # ===== WebSocket 实时推送端点 =====
         @self.app.websocket("/ws/alerts")
@@ -1964,6 +1966,8 @@ class WebServer:
         async def websocket_status(websocket: WebSocket):
             """系统状态实时推送WebSocket"""
             await websocket.accept()
+            with self._ws_lock:
+                self.websocket_clients.append(websocket)
             logging.info("WebSocket client connected (status)")
             try:
                 while True:
@@ -1979,43 +1983,47 @@ class WebServer:
                     await websocket.send_json(status_data)
                     await asyncio.sleep(2)
             except WebSocketDisconnect:
+                with self._ws_lock:
+                    if websocket in self.websocket_clients:
+                        self.websocket_clients.remove(websocket)
                 logging.info("WebSocket client disconnected (status)")
             except Exception as e:
                 logging.warning(f"Status WebSocket error: {e}")
+                with self._ws_lock:
+                    if websocket in self.websocket_clients:
+                        self.websocket_clients.remove(websocket)
 
     def broadcast_alert(self, alert_data: dict):
         """广播告警到所有连接的WebSocket客户端"""
-        if not self.websocket_clients:
+        if WebServer._event_loop is None:
             return
-        
-        message = json.dumps({
-            "type": "alert",
-            "data": alert_data,
-            "timestamp": time.time()
-        }, ensure_ascii=False, default=str)
-        
-        disconnected = []
-        with self._ws_lock:
-            for client in self.websocket_clients[:]:
+
+        async def _send():
+            disconnected = set()
+            for client in list(self.websocket_clients):
                 try:
-                    import asyncio
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        asyncio.create_task(client.send_text(message))
-                    else:
-                        loop.run_until_complete(client.send_text(message))
-                except Exception as e:
-                    logging.debug(f"Failed to send to WebSocket client: {e}")
-                    disconnected.append(client)
-            
-            for client in disconnected:
-                if client in self.websocket_clients:
-                    self.websocket_clients.remove(client)
+                    await client.send_json({
+                        "type": "alert",
+                        "data": alert_data,
+                        "timestamp": time.time()
+                    }, mode="text")
+                except Exception:
+                    disconnected.add(client)
+            if disconnected:
+                with self._ws_lock:
+                    self.websocket_clients[:] = [c for c in self.websocket_clients if c not in disconnected]
+
+        asyncio.run_coroutine_threadsafe(_send(), WebServer._event_loop)
 
     def _run_server(self):
         host = self.config.get('web.host', '0.0.0.0')
         port = self.config.get('web.port', 8000)
-        
+
+        async def _on_startup():
+            WebServer._event_loop = asyncio.get_running_loop()
+
+        self.app.add_event_handler("startup", _on_startup)
+
         try:
             config = uvicorn.Config(
                 self.app,
@@ -2042,3 +2050,20 @@ class WebServer:
     def stop(self):
         logging.info("Stopping web server...")
         self.running = False
+
+        if WebServer._event_loop is not None:
+            async def _notify_shutdown():
+                disconnected = set()
+                for client in list(self.websocket_clients):
+                    try:
+                        await client.send_json({"type": "shutdown", "message": "Server is shutting down"})
+                        await client.close()
+                    except Exception:
+                        disconnected.add(client)
+                self.websocket_clients.clear()
+
+            asyncio.run_coroutine_threadsafe(_notify_shutdown(), WebServer._event_loop)
+            WebServer._event_loop = None
+
+        if hasattr(self, 'server') and self.server:
+            self.server.should_exit = True

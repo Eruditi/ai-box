@@ -18,7 +18,7 @@ import cv2
 import numpy as np
 
 from camera_manager import Camera, CameraManager
-from ai_analyzer import AIAnalyzer
+from ai_analyzer_simple import SimpleAIAnalyzer
 from hardware_decoder import decoder_manager
 
 
@@ -53,7 +53,7 @@ class CameraProcess(Process):
                 return
             
             # 初始化AI分析器
-            self.ai_analyzer = AIAnalyzer(self.config)
+            self.ai_analyzer = SimpleAIAnalyzer(self.config)
             if not self.ai_analyzer.initialize():
                 logger.error(f"Failed to initialize AI analyzer for {self.camera_name}")
                 return

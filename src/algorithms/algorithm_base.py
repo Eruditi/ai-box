@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
+import logging
 import cv2
 import numpy as np
 
@@ -32,6 +33,7 @@ class AlgorithmResult:
     bounding_box: Optional[Tuple[int, int, int, int]] = None
     extra_data: Dict[str, Any] = field(default_factory=dict)
     timestamp: float = 0.0
+    message: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -42,8 +44,57 @@ class AlgorithmResult:
             'confidence': float(self.confidence),
             'bounding_box': list(self.bounding_box) if self.bounding_box else None,
             'extra_data': self.extra_data,
-            'timestamp': self.timestamp
+            'timestamp': self.timestamp,
+            'message': self.message
         }
+
+
+def safe_parse_detection(det) -> Optional[Dict[str, Any]]:
+    """
+    安全解析检测结果，支持字典、元组、列表和对象属性格式
+    返回: {'bbox': [x1,y1,x2,y2], 'confidence': float, 'class_id': int, 'class_name': str} 或 None
+    """
+    try:
+        if isinstance(det, dict):
+            bbox = det.get('bbox', [])
+            confidence = det.get('confidence', det.get('score', 0))
+            class_id = det.get('class_id', det.get('cls', -1))
+            class_name = det.get('class_name', det.get('label', ''))
+        elif isinstance(det, (tuple, list)):
+            bbox = list(det[:4]) if len(det) >= 4 else []
+            confidence = float(det[4]) if len(det) > 4 else 0
+            class_id = int(det[5]) if len(det) > 5 else -1
+            class_name = str(det[6]) if len(det) > 6 else ''
+        elif hasattr(det, 'bbox'):
+            raw_bbox = det.bbox
+            if raw_bbox is not None:
+                bbox = list(raw_bbox) if not isinstance(raw_bbox, list) else raw_bbox
+            else:
+                bbox = []
+            confidence = getattr(det, 'confidence', getattr(det, 'score', 0))
+            class_id = getattr(det, 'class_id', getattr(det, 'cls', -1))
+            class_name = getattr(det, 'class_name', getattr(det, 'label', ''))
+        else:
+            return None
+
+        if not bbox or len(bbox) < 4:
+            return None
+
+        x1, y1, x2, y2 = int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        return {
+            'bbox': [x1, y1, x2, y2],
+            'confidence': float(confidence),
+            'class_id': int(class_id),
+            'class_name': str(class_name),
+        }
+
+    except Exception as e:
+        logging.debug(f"[检测解析] 跳过无效检测: {e}")
+        return None
 
 
 class AlgorithmBase(ABC):

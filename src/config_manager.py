@@ -79,7 +79,7 @@ class ConfigManager:
             try:
                 callback(self.config)
             except Exception as e:
-                print(f"Error in config callback: {e}")
+                logging.error(f"Error in config callback: {e}")
     
     def start_monitoring(self):
         """开始监控配置文件变化"""
@@ -105,11 +105,11 @@ class ConfigManager:
                     if new_config != self.config:
                         self.config = new_config
                         self.last_modified_time = current_modified
-                        print("Config file updated, reloading...")
+                        logging.info("Config file updated, reloading...")
                         self._notify_callbacks()
                 time.sleep(2)  # 每2秒检查一次
             except Exception as e:
-                print(f"Error monitoring config: {e}")
+                logging.error(f"Error monitoring config: {e}")
                 time.sleep(5)
     
     def reload(self):

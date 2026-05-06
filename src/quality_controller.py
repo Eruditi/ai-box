@@ -13,6 +13,11 @@ from collections import defaultdict, deque
 
 import numpy as np
 
+try:
+    import cv2
+except ImportError:
+    cv2 = None
+
 from algorithms.algorithm_base import AlgorithmResult, AlgorithmCategory
 
 
@@ -356,11 +361,6 @@ class QualityController:
             'active_cooldowns': len(self.cooldown_map),
         }
 
-
-try:
-    import cv2
-except ImportError:
-    cv2 = None
 
 _quality_controller = None
 

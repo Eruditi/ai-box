@@ -251,6 +251,45 @@ class SQLiteDatabase(BaseDatabase):
         except Exception as e:
             return 0
 
+    def add_alert_summary(self, summary: Dict[str, Any]) -> bool:
+        """添加告警摘要"""
+        try:
+            conn = self._get_conn()
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS alert_summaries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    summary TEXT,
+                    timestamp REAL,
+                    alert_count INTEGER,
+                    camera_sources TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.execute('''
+                INSERT INTO alert_summaries (summary, timestamp, alert_count, camera_sources)
+                VALUES (?, ?, ?, ?)
+            ''', (
+                summary.get('summary', ''),
+                summary.get('timestamp', time.time()),
+                summary.get('alert_count', 0),
+                summary.get('camera_sources', '')
+            ))
+            conn.commit()
+            return True
+        except Exception as e:
+            logging.error(f"[SQLite] 写入摘要失败: {e}")
+            return False
+
+    def test_connection(self) -> bool:
+        """测试数据库连接"""
+        try:
+            conn = self._get_conn()
+            conn.execute("SELECT 1")
+            return True
+        except Exception as e:
+            logging.error(f"[SQLite] 连接测试失败: {e}")
+            return False
+
     def cleanup_old_records(self, days: int = 90):
         """清理旧记录"""
         try:

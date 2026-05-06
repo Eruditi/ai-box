@@ -17,7 +17,6 @@ if sys.platform == 'win32':
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logging.info("Starting module imports...")
 
 try:
@@ -131,6 +130,7 @@ class AIBox:
             log_dir.mkdir(parents=True, exist_ok=True)
             handlers.append(logging.FileHandler(log_dir / 'ai-box.log'))
         
+        logging.getLogger().handlers.clear()
         logging.basicConfig(
             level=log_level,
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

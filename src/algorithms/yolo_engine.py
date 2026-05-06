@@ -80,6 +80,14 @@ class YOLOEngine:
         
         self._load_model()
 
+    @classmethod
+    def reset(cls):
+        """重置单例，允许用新参数重新创建实例"""
+        with cls._lock:
+            if cls._instance is not None:
+                cls._instance._initialized = False
+                cls._instance = None
+
     def _detect_accelerator(self, accelerator: str) -> AcceleratorType:
         """检测可用的加速器"""
         if accelerator == 'auto':
@@ -376,10 +384,17 @@ SMOKE_COLOR = {
 }
 
 _yolo_instance = None
+_yolo_params = {}
 
 def get_yolo_engine(model_size: str = 'n', accelerator: str = 'auto') -> YOLOEngine:
     """获取 YOLO 引擎单例（兼容旧接口）"""
-    global _yolo_instance
+    global _yolo_instance, _yolo_params
+    new_params = {'model_size': model_size, 'accelerator': accelerator}
+    if _yolo_instance is not None and _yolo_params != new_params:
+        logging.info(f"[YOLO引擎] 参数变化 {_yolo_params} -> {new_params}，重新创建实例")
+        YOLOEngine.reset()
+        _yolo_instance = None
     if _yolo_instance is None:
+        _yolo_params = new_params
         _yolo_instance = YOLOEngine(model_size=model_size, accelerator=accelerator)
     return _yolo_instance
